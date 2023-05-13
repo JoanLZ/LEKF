@@ -1,5 +1,5 @@
 import numpy as np
-from manifpy import SO3, Rn, SO3Tangent
+from manifpy import SO3, SO3Tangent
 from matplotlib import pyplot as plt
 
 import lekf
@@ -25,6 +25,10 @@ class Simulator:
 
 if __name__ == "__main__":
     sim = Simulator()
+    a_m = R3
+    ω_m = R3
+    u = [a_m, ω_m]
+
     while True:
         sim.step()
         # make som plot
