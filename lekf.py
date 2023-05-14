@@ -8,33 +8,29 @@ from state import *
 
 class LEKF:
     # Constructor
-    def __init__(self) -> None:
-        pass
+    def __init__(self, X0, P0, Q, W, V) -> None:
+        self.X = X0 # [State]
+        self.P = P0 # [Covariance]
+        self.Q = Q  # [Covariance]
+        self.W = W  # [Covariance]
+        self.V = V  # [Covariance]
 
     # User function
     def predict(self, U, dt):
 
-        x = State(np.array([0.5, 0.5, 0.5, 0.5]),
-                  np.array([0, 0, 0]),
-                  np.array([1/3, 1/3, 1/3]),
-                  np.array([0, 0, 0]),
-                  np.array([0, 0, 0]))
+        W = ImuNoise(np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3))
+        X_out, F_x, F_u, F_w = self.f(self.X, U, W, dt)
 
-        P = np.identity(x.R.DoF + x.v.size + x.p.size +
-                        x.a_b.size + x.ω_b.size)
+        P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
+            F_w @ self.W @ F_w.transpose()
 
-        W_predict = ImuNoise(np.zeros(3), np.zeros(3),
-                             np.zeros(3), np.zeros(3))
-
-        x_plus, F_x, F_u, F_w = self.f(x, U, W_predict)
-
-        P_plus = F_x @ P @ F_x.transpose() + F_u @ Q @ F_u.transpose() + \
-            F_w @ W @ F_w.transpose()
-
-        return x_plus, P_plus
+        self.X = X_out
+        self.P = P_out
 
     def correct(self, Y):
-        pass
+        
+        V = OptitrackNoise(np.zeros(SO3.DoF),np.zeros(3))
+
 
     # Method
 
@@ -67,7 +63,7 @@ class LEKF:
         J_a_awn = J_RΔa_Δa @ J_Δa_awn
         return a, J_a_R, J_a_am, J_a_ab, J_a_awn
 
-    def omega(self, X, U, W):
+    def ω(self, X, U, W):
 
         # compute true value
         # equation
