@@ -5,6 +5,9 @@ from manifpy import *
 from measurement import *
 from state import *
 
+_ZERO = np.zeros([3, 3])
+
+
 
 class LEKF:
     # Constructor
@@ -119,7 +122,6 @@ class LEKF:
         J_ωb_ωr = np.identity(3)
 
         # Assemble big jacobians: J_f_x, J_f_u, J_f_r
-        Zero = np.zeros([3, 3])
 
         # Jacobians of R wrt state vars
         J_R_ωb = J_RExp_ω @ J_ω_ωb
@@ -135,11 +137,11 @@ class LEKF:
 
         # J_f_x
 
-        J_f_x = np.array([[J_RExp_R,  Zero,  Zero,    Zero,  J_R_ωb],
-                          [   J_v_R, J_v_v,  Zero,  J_v_ab,    Zero],
-                          [   J_p_R, J_p_v, J_p_p,  J_p_ab,    Zero],
-                          [    Zero,  Zero,  Zero, J_ab_ab,    Zero],
-                          [    Zero,  Zero,  Zero,    Zero, J_ωb_ωb]])
+        J_f_x = np.array([[J_RExp_R,  _ZERO,  _ZERO,    _ZERO,  J_R_ωb],
+                          [   J_v_R, J_v_v,  _ZERO,  J_v_ab,    _ZERO],
+                          [   J_p_R, J_p_v, J_p_p,  J_p_ab,    _ZERO],
+                          [    _ZERO,  _ZERO,  _ZERO, J_ab_ab,    _ZERO],
+                          [    _ZERO,  _ZERO,  _ZERO,    _ZERO, J_ωb_ωb]])
 
         # Jacobians of v wrt IMU measurments
         J_v_am = J_v_a @ J_a_am
@@ -148,22 +150,82 @@ class LEKF:
         J_p_am = J_p_a @ J_a_am
 
         # J_f_u
-        J_f_u = np.array([[  Zero, J_R_ωm],
-                          [J_v_am,   Zero],
-                          [J_p_am,   Zero],
-                          [  Zero,   Zero],
-                          [  Zero,   Zero]])
+        J_f_u = np.array([[  _ZERO, J_R_ωm],
+                          [J_v_am,   _ZERO],
+                          [J_p_am,   _ZERO],
+                          [  _ZERO,   _ZERO],
+                          [  _ZERO,   _ZERO]])
         # J_f_w
-        J_f_w = np.array([[  Zero,    Zero],
-                         [   Zero,    Zero],
-                         [   Zero,    Zero],
-                         [J_ab_ar,    Zero],
-                         [   Zero, J_ωb_ωr]])
+        J_f_w = np.array([[  _ZERO,    _ZERO],
+                         [   _ZERO,    _ZERO],
+                         [   _ZERO,    _ZERO],
+                         [J_ab_ar,    _ZERO],
+                         [   _ZERO, J_ωb_ωr]])
 
         return X_o, J_f_x, J_f_u, J_f_w
 
-    def h(self, Y):
-        pass
+    def h(self, X, V):
+        # Defining the Jacobians for manif to compute.
+        J_Re_R = np.ndarray([SO3.DoF, SO3.DoF])
+        # Defining the Jacobians for manif to compute.
+        J_Re_Rwn = np.ndarray([SO3.DoF, SO3Tangent.DoF])
+        # R_e = R (+) R_wn
+        R_e = X.R.rplus(V.R_wn,J_Re_R,J_Re_Rwn)
+
+        # P_e = p + p_wn
+        p_e = X.p + V.p_wn
+
+        J_pe_p = np.identity(3)
+        J_pe_pwn = np.identity(3)
+        
+        Y_e = OptitrackMeasurement(R_e,p_e)
+        
+        J_h_x = np.array([[J_Re_R, _ZERO],
+                          [_ZERO, J_pe_p]])
+        J_h_v = np.array([[J_Re_Rwn, _ZERO],
+                         [_ZERO, J_pe_pwn]])
+        return Y_e, J_h_x, J_h_v
+    
+    def z(self, Y):
+        V = OptitrackNoise(np.zeros(3), np.zeros(3))
+        Y_e, H_x, H_v = self.h(self.X,V)
+
+        # Defining the Jacobians for manif to compute.
+        J_Rz_Rm = np.ndarray([SO3.DoF, SO3.DoF])
+        # Defining the Jacobians for manif to compute.
+        J_Rz_Re = np.ndarray([SO3.DoF, SO3.DoF])
+        # Z = Y.R (+) R_wn
+        R_z = Y.R_m.rminus(Y_e.R_m,J_Rz_Rm,J_Rz_Re)
+        J_Re_R = H_x[0,0]
+        J_Rz_R = J_Rz_Re @ J_Re_R
+
+        J_Re_Rwn = H_v[0,0]
+        J_Rz_Rwn = J_Rz_Re @ J_Re_Rwn
+        
+        # Z.p= Y.(+) R_wn
+        p_z = Y.p_m - Y_e.p_m
+        J_pz_pe = -np.identity(3)
+
+        J_pe_p = H_x[1,1]
+        J_pz_p = J_pz_pe @ J_pe_p
+
+        J_pe_pwn = H_v[1,1]
+        J_pz_pwn = J_pz_pe @ J_pe_pwn
+
+        z = OptitrackNoise(R_z, p_z)
+
+        J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
+                          [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
+        
+        J_z_v = np.array([[J_Rz_Rwn,    _ZERO],
+                          [   _ZERO, J_pz_pwn]])
+
+        return z, J_z_x, J_z_v
+
+
+
+
+        
 
 
 # Observation system
