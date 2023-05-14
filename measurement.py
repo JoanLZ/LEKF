@@ -23,7 +23,7 @@ class OptitrackMeasurement:
     def __init__(self, R_m, p_m):
         self.R_m = SO3(R_m.coeffs_copy())  # rotation measurement
         self.p_m = p_m  # position measurement
-
+    
 
 class OptitrackNoise:
 
