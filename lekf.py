@@ -12,13 +12,29 @@ class LEKF:
         pass
 
     # User function
-    def predict(self, U):
-        pass
-    
+    def predict(self,U,dt):
+        
+        x = State (np.array([0.5,0.5,0.5,0.5]),
+                   np.array([0,0,0]),
+                   np.array([1/3,1/3,1/3]),
+                   np.array([0,0,0]),
+                   np.array([0,0,0]))
+        
+        P = np.identity(x.R.DoF + x.v.size + x.p.size + x.a_b.size + x.ω_b.size)
+
+        W_predict = ImuNoise(np.zeros(3),np.zeros(3),np.zeros(3),np.zeros(3))    
+
+        x_plus, F_x, F_u, F_w = self.f(x,U,W_predict)
+
+        P_plus = F_x @ P @ F_x.transpose() + F_u @ Q @ F_u.transpose() + F_w @ W @ F_w.transpose()
+
+        return x_plus, P_plus
+   
     def correct(self, Y):
         pass
 
     # Method 
+
     def a(X,U):
         g = np.array([0,0,9.81])
         # compute the true a 
@@ -134,7 +150,7 @@ class LEKF:
         
         return X_o, J_f_x, J_f_u, J_f_w 
     
-        
+    def h(self, )
 
         
         
