@@ -33,7 +33,25 @@ class LEKF:
     def correct(self, Y):
         
         V = OptitrackNoise(np.zeros(SO3.DoF),np.zeros(3))
+        # e, H_x, X_v = self.h(self.X, V)
+        z, J_z_x, J_z_v = self.z(Y)
 
+        Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self.V @ J_z_v.transpose()
+
+        K = - self.P @ J_z_x.transpose() @ np.inv(Z)
+
+        R_out  = self.X.R   + K[:3,:3]*z.R_wn + K[:3,3:]*z.p_wn
+        v_out  = self.X.v   + K[3:6,:3]*z.R_wn + K[3:6,3:]*z.p_wn
+        p_out  = self.X.p   + K[6:9,:3]*z.R_wn + K[6:9,3:]*z.p_wn
+        ab_out = self.X.a_b + K[9:12,:3]*z.R_wn + K[9:12,3:]*z.p_wn
+        ωb_out = self.X.ω_b + K[12:15,:3]*z.R_wn + K[12:15,3:]*z.p_wn
+
+        X_out = State(R_out, v_out, p_out, ab_out, ωb_out)
+
+        P_out = self.P - K @ Z @ K.transpose
+
+        self.X = X_out
+        self.P = P_out
 
     # Method
 
