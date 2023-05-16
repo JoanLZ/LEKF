@@ -11,6 +11,7 @@ _ZERO = np.zeros([3, 3])
 
 class LEKF:
     # Constructor
+
     def __init__(self, X0, P0, Q, W, V) -> None:
         self.X = X0 # [State]
         self.P = P0 # [Covariance]
@@ -19,21 +20,33 @@ class LEKF:
         self.V = V  # [Covariance]
 
     # User function
+
     def predict(self, U, dt):
 
+        # Initialize covariance matrix W whit all the noises, white and random walk, at 0.
+        # As the atributes are expected to be 3x3 array, the np.zero of dimension 3 is used.
+
         W = ImuNoise(np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3))
+        
+        # The prediction is based on the dynamics function with 0 noise.
+        # The obtained values are the estimated X and the jacobians of the dynamcs wrt its inputs.
         X_out, F_x, F_u, F_w = self.f(self.X, U, W, dt)
 
+        # The prediction step also has to upload the value of the covariance matrix P (matrix of the state).
+        # We do this by taking in account all the inputs covariances and the jacobians mentioned before.
         P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
             F_w @ self.W @ F_w.transpose()
 
-        self.X = X_out
-        self.P = P_out
+        self.X = X_out # We upload the estimated state value.
+        self.P = P_out # We upload the covariance matrix of the estimated value.
+    
+    def correct(self, Y): 
 
-    def correct(self, Y):
-        
+
         V = OptitrackNoise(np.zeros(SO3.DoF),np.zeros(3))
+        
         # e, H_x, X_v = self.h(self.X, V)
+
         z, J_z_x, J_z_v = self.z(Y)
 
         Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self.V @ J_z_v.transpose()
@@ -53,43 +66,49 @@ class LEKF:
         self.X = X_out
         self.P = P_out
 
-    # Method
+    # Noisless measurments from IMU (wrt world frame)
+
+    # Acceleration
 
     def a(self, X, U, W):
         g = np.array([0, 0, -9.81])
         # compute the true a
-        # remove bias from measurement
+        # remove bias and whiet noise from measurement
         # equation
         Δa = U.a_m-X.a_b-W.a_wn
         # jacobian
-        J_Δa_am = np.identity(len(Δa))  # Jacobian of the differnce wrt a_m
-        J_Δa_ab = -np.identity(len(Δa))  # Jacobian of the differnce wrt a_b
-        J_Δa_awn = -np.identity(len(Δa))  # Jacobian of the differnce wrt a_wn
-        # compute true value
-        # equation
+        J_Δa_am = np.identity(len(Δa))  # Jacobian of the difference wrt a_m
+        J_Δa_ab = -np.identity(len(Δa))  # Jacobian of the difference wrt a_b
+        J_Δa_awn = -np.identity(len(Δa))  # Jacobian of the difference wrt a_wn
+        # Change the frame of the IMU from wrt body to wrt world frame
         # Defining the Jacobians for manif to compute.
         J_RΔa_R = np.ndarray([X.R.DoF, X.R.DoF])
         # Defining the Jacobians for manif to compute.
         J_RΔa_Δa = np.ndarray([X.R.DoF, Δa.size])
-        # a = R * ( Δa ) + g. The result is a 3d vector.
-        a = X.R.act(Δa, J_RΔa_R, J_RΔa_Δa) + g
+        
+        # Computing the frame change
+        a = X.R.act(Δa, J_RΔa_R, J_RΔa_Δa) + g # a = R * ( Δa ) + g. The result is a 3d vector.
+        
         # jacobian
-        # From the paper: J_R*v_R = ... = -R[v]x. In this case J_a_R = -R[ da ]x = -R*[a_m -a_b]x
-        J_a_R = J_RΔa_R
-        # J_a_am = J_R(am-ab-awn)+g_(am-ab-awn) dot J_(am-ab-awn)_am
-        J_a_am = J_RΔa_Δa @ J_Δa_am
-        # J_a_ab = J_R(am-ab-awn)+g_(am-ab-awn) dot J_(am-ab-awn)_ab
-        J_a_ab = J_RΔa_Δa @ J_Δa_ab
-        # J_a_awn = J_R(am-ab-awn)+g_(am-ab-awn) dot J_(am-ab-awn)_awn
-        J_a_awn = J_RΔa_Δa @ J_Δa_awn
+
+        J_a_R = J_RΔa_R # From the paper: J_R*v_R = ... = -R[v]x. In this case J_a_R = -R[ da ]x = -R*[a_m -a_b]x
+    
+        J_a_am = J_RΔa_Δa @ J_Δa_am # J_a_am = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_am
+
+        J_a_ab = J_RΔa_Δa @ J_Δa_ab # J_a_ab = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_ab
+
+        J_a_awn = J_RΔa_Δa @ J_Δa_awn # J_a_awn = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_awn
+
         return a, J_a_R, J_a_am, J_a_ab, J_a_awn
+
+    # Omega
 
     def ω(self, X, U, W):
 
-        # compute true value
+        # compute true value ω
+        # remove bias and whiet noise from measurement
         # equation
-        # w = w_m - w_b defining wmeasured and wbias as a 3D vector.
-        ω = U.ω_m - X.ω_b - W.ω_wn
+        ω = U.ω_m - X.ω_b - W.ω_wn # w = w_m - w_b defining wmeasured and wbias as a 3D vector.
         # jacobian
         J_ω_ωm = np.identity(3)
         J_ω_ωb = -np.identity(3)
@@ -100,10 +119,11 @@ class LEKF:
     # Dynamics of system
 
     def f(self, X, U, W, dt):
+
         X_o = State(X.R, X.v, X.p, X.a_b, X.ω_b)
         # compute real values of U
-        a, J_a_R, J_a_am, J_a_ab, _ = self.a(X, U, W)  # real a
-        ω, J_ω_ωm, J_ω_ωb, _ = self.omega(X, U, W)  # real ω
+        a, J_a_R, J_a_am, J_a_ab, _ = self.a(X, U, W)  # real a and its jacobians
+        ω, J_ω_ωm, J_ω_ωb, _ = self.ω(X, U, W)  # real ω and its jacobians
         # compute value
         # equation
         # Defining the Jacobians for manif to compute.
@@ -116,7 +136,7 @@ class LEKF:
         # We computed the jacobian of the plus operation wrt to wdt, not w. So lets compute jacobian of wdt wrt w and then apply chain rule.
         J_ωdt_ω = dt*np.identity(3)
         J_RExp_ω = J_RExp_ωdt @ J_ωdt_ω  # Chain rule
-        J_R_ωm = J_RExp_ω @ J_ω_ωm
+        J_R_ωm = J_RExp_ω @ J_ω_ωm # Chain rule
         # equation
         X_o.v = X.v + a*dt  # v =  v + a*dt
         # jacobian
@@ -145,9 +165,10 @@ class LEKF:
         J_R_ωb = J_RExp_ω @ J_ω_ωb
 
         # Jacobians of v wrt state vars
-        # J_v+adt_adt @ J_adt_a @ J_R(am-ab)+g_R = J_v+adt_a @ J_R(am-ab)+g_R
-        J_v_R = J_v_a @ J_a_R
-        J_v_ab = J_v_a @ J_a_ab
+        
+        J_v_R = J_v_a @ J_a_R # J_v+adt_adt @ J_adt_a @ J_R(am-ab)+g_R = J_v+adt_a @ J_R(am-ab)+g_R
+
+        J_v_ab = J_v_a @ J_a_ab 
 
         # Jacobians of p wrt state vars
         J_p_R = J_p_a @ J_a_R
@@ -155,11 +176,11 @@ class LEKF:
 
         # J_f_x
 
-        J_f_x = np.array([[J_RExp_R,  _ZERO,  _ZERO,    _ZERO,  J_R_ωb],
-                          [   J_v_R, J_v_v,  _ZERO,  J_v_ab,    _ZERO],
-                          [   J_p_R, J_p_v, J_p_p,  J_p_ab,    _ZERO],
-                          [    _ZERO,  _ZERO,  _ZERO, J_ab_ab,    _ZERO],
-                          [    _ZERO,  _ZERO,  _ZERO,    _ZERO, J_ωb_ωb]])
+        J_f_x = np.array([[J_RExp_R,  _ZERO,   _ZERO,     _ZERO,     J_R_ωb],
+                          [   J_v_R, J_v_v,    _ZERO,     J_v_ab,     _ZERO],
+                          [   J_p_R, J_p_v,    J_p_p,     J_p_ab,     _ZERO],
+                          [    _ZERO,  _ZERO,  _ZERO,     J_ab_ab,    _ZERO],
+                          [    _ZERO,  _ZERO,  _ZERO,     _ZERO,    J_ωb_ωb]])
 
         # Jacobians of v wrt IMU measurments
         J_v_am = J_v_a @ J_a_am
@@ -168,21 +189,25 @@ class LEKF:
         J_p_am = J_p_a @ J_a_am
 
         # J_f_u
-        J_f_u = np.array([[  _ZERO, J_R_ωm],
-                          [J_v_am,   _ZERO],
-                          [J_p_am,   _ZERO],
+        J_f_u = np.array([[  _ZERO,  J_R_ωm],
+                          [ J_v_am,   _ZERO],
+                          [ J_p_am,   _ZERO],
                           [  _ZERO,   _ZERO],
-                          [  _ZERO,   _ZERO]])
-        # J_f_w
+                          [  _ZERO,   _ZERO]]) 
+        # J_f_w 
         J_f_w = np.array([[  _ZERO,    _ZERO],
                          [   _ZERO,    _ZERO],
                          [   _ZERO,    _ZERO],
-                         [J_ab_ar,    _ZERO],
-                         [   _ZERO, J_ωb_ωr]])
+                         [ J_ab_ar,    _ZERO],
+                         [   _ZERO,  J_ωb_ωr]])
 
         return X_o, J_f_x, J_f_u, J_f_w
 
+    # Expectation
+
     def h(self, X, V):
+        # compute value
+        # equation
         # Defining the Jacobians for manif to compute.
         J_Re_R = np.ndarray([SO3.DoF, SO3.DoF])
         # Defining the Jacobians for manif to compute.
@@ -190,9 +215,9 @@ class LEKF:
         # R_e = R (+) R_wn
         R_e = X.R.rplus(V.R_wn,J_Re_R,J_Re_Rwn)
 
-        # P_e = p + p_wn
+        # equation
         p_e = X.p + V.p_wn
-
+        # jacobian
         J_pe_p = np.identity(3)
         J_pe_pwn = np.identity(3)
         
@@ -204,6 +229,8 @@ class LEKF:
                          [_ZERO, J_pe_pwn]])
         return Y_e, J_h_x, J_h_v
     
+    # Correction
+
     def z(self, Y):
         V = OptitrackNoise(np.zeros(3), np.zeros(3))
         Y_e, H_x, H_v = self.h(self.X,V)
@@ -212,15 +239,17 @@ class LEKF:
         J_Rz_Rm = np.ndarray([SO3.DoF, SO3.DoF])
         # Defining the Jacobians for manif to compute.
         J_Rz_Re = np.ndarray([SO3.DoF, SO3.DoF])
-        # Z = Y.R (+) R_wn
+        
+        # R_z = Y.R (-) Ye.R_m 
         R_z = Y.R_m.rminus(Y_e.R_m,J_Rz_Rm,J_Rz_Re)
+        
         J_Re_R = H_x[0,0]
         J_Rz_R = J_Rz_Re @ J_Re_R
 
         J_Re_Rwn = H_v[0,0]
         J_Rz_Rwn = J_Rz_Re @ J_Re_Rwn
         
-        # Z.p= Y.(+) R_wn
+        # Z.p = Y.p_m - R_wn
         p_z = Y.p_m - Y_e.p_m
         J_pz_pe = -np.identity(3)
 
