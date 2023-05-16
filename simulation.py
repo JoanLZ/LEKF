@@ -32,25 +32,25 @@ p_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
                     0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 # [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
 
-P0 = np.diagflat(np.squares(p_sigmas))
+P0 = np.diagflat(np.square(p_sigmas))
 
 # Covariance of the Measurment IMU
 q_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 # [std_error ab,std_error ωb]
 
-Q0 = np.diagflat(np.squares(q_sigmas))
+Q0 = np.diagflat(np.square(q_sigmas))
 
 # Covariance of the IMU bias
 w_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 # [std_error R,std_error v]
 
-W0 = np.diagflat(np.squares(w_sigmas))
+W0 = np.diagflat(np.square(w_sigmas))
 
 # Covariance of the Measurment Optitrack
 v_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 # [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
 
-V0 = np.diagflat(np.squares(v_sigmas))
+V0 = np.diagflat(np.square(v_sigmas))
 
 g = np.array([0, 0, -9.81])
 
@@ -65,10 +65,10 @@ def update(X, dt):
     if _IMU_NOISE:
         pass
     # Command U
-    U.a_m = X.R.transpose(a-g)+X.a_b+Un.a_wn
+    U.a_m = X.R.inverse().act(a-g)+X.a_b+Un.a_wn
     U.ω_m = ω + X.ω_b + Un.ω_wn
     # New state X
-    X_o.R = X.R*(ω*dt)
+    X_o.R = X.R.rplus((SO3Tangent(ω*dt)))
     X_o.v = X.v + a*dt
     X_o.p = X.p + X.v*dt + a*((dt**2)/2)
     X_o.a_b = X.a_b + Un.a_rw
