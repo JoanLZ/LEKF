@@ -25,7 +25,7 @@ class LEKF:
         # Initialize covariance matrix W whit all the noises, white and random walk, at 0.
         # As the atributes are expected to be 3x3 array, the np.zero of dimension 3 is used.
 
-        W = ImuNoise(np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3))
+        W = ImuNoise()
 
         # The prediction is based on the dynamics function with 0 noise.
         # The obtained values are the estimated X and the jacobians of the dynamcs wrt its inputs.
@@ -42,7 +42,7 @@ class LEKF:
 
     def correct(self, Y):
 
-        V = OptitrackNoise(np.zeros(SO3.DoF), np.zeros(3))
+        V = OptitrackNoise()
 
         # e, H_x, X_v = self.h(self.X, V)
 
@@ -249,7 +249,7 @@ class LEKF:
         
         Y_e = OptitrackMeasurement(R_e,p_e)
         
-        J_h_x = np.zeros(6)
+        J_h_x = np.zeros([6, 15])
 
         J_h_x[0:3,0:3] = J_Re_R
         J_h_x[3:6,3:6] = J_pe_p
@@ -257,7 +257,7 @@ class LEKF:
         # J_h_x = np.array([[J_Re_R, _ZERO],
         #                   [_ZERO, J_pe_p]])
         
-        J_h_v = np.zeros(6)
+        J_h_v = np.zeros([6,6])
         J_h_v[0:3,0:3] = J_Re_Rwn
         J_h_v[3:6,3:6] = J_pe_pwn
 
@@ -269,7 +269,7 @@ class LEKF:
     # Correction
 
     def z(self, Y):
-        V = OptitrackNoise(np.zeros(3), np.zeros(3))
+        V = OptitrackNoise()
         Y_e, H_x, H_v = self.h(self.X, V)
 
         # Defining the Jacobians for manif to compute.
@@ -280,20 +280,20 @@ class LEKF:
         # R_z = Y.R (-) Ye.R_m
         R_z = Y.R_m.rminus(Y_e.R_m, J_Rz_Rm, J_Rz_Re)
 
-        J_Re_R = H_x[0, 0]
+        J_Re_R = H_x[0:3, 0:3]
         J_Rz_R = J_Rz_Re @ J_Re_R
 
-        J_Re_Rwn = H_v[0, 0]
+        J_Re_Rwn = H_v[0:3, 0:3]
         J_Rz_Rwn = J_Rz_Re @ J_Re_Rwn
 
         # Z.p = Y.p_m - R_wn
         p_z = Y.p_m - Y_e.p_m
         J_pz_pe = -np.identity(3)
 
-        J_pe_p = H_x[1, 1]
+        J_pe_p = H_x[3:6, 3:6]
         J_pz_p = J_pz_pe @ J_pe_p
 
-        J_pe_pwn = H_v[1, 1]
+        J_pe_pwn = H_v[3:6, 3:6]
         J_pz_pwn = J_pz_pe @ J_pe_pwn
 
         z = OptitrackNoise(R_z, p_z)
@@ -306,7 +306,7 @@ class LEKF:
         # J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
         #                   [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
         
-        J_z_v=np.zeros(6)
+        J_z_v=np.zeros([6,6])
 
         J_z_v[0:3,0:3] = J_Rz_Rwn
         J_z_v[3:6,3:6] = J_pz_pwn
