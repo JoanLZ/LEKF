@@ -2,29 +2,57 @@
 
 import numpy as np
 from matplotlib import pyplot as plt
-from manifpy import SO3
+from manifpy import SO3, SO3Tangent
 
 from lekf import LEKF
 import state
 import measurement
 
-# Constants for simulation
+# RATE & TIME
 _IMU_RATE = 1000  # [Hz]
 _OPTITRACK_RATE = 100  # [Hz]
 _TIME = 15  # [s]
+
+# NOISE
+_IMU_NOISE = False
+_OPTITRACK_NOISE = False
 # Sigmas
 w_sigmas = measurement.ImuNoise(0.1*np.ones(3), 0.1*np.ones(3),
                                 0.01*np.ones(3), 0.01*np.ones(3))
-v_sigmas = measurement.OptitrackNoise(0.1*np.ones(SO3.DoF), 0.1*np.ones(3))
+v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.1*np.ones(SO3.DoF)), 0.1*np.ones(3))
 
 g = np.array([0, 0, -9.81])
 
 
-def update(X, t):
-    pass #TODO
+def update(X, dt):
+    U = measurement.ImuMeasurement()
+    Un = measurement.ImuNoise()
+    X_o = state.State()
+    # True acc & angular velocity
+    a = np.zeros(3)
+    ω = np.array([0,0,1])
+    if _IMU_NOISE:
+        pass
+    # Command U
+    U.a_m = X.R.transpose(a-g)+X.a_b+Un.a_wn
+    U.ω_m = ω + X.ω_b + Un.ω_wn
+    # New state X
+    X_o.R = X.R*(ω*dt)
+    X_o.v = X.v + a*dt
+    X_o.p = X.p + X.v*dt + a*((dt**2)/2)
+    X_o.a_b = X.a_b + Un.a_rw
+    X_o.ω_b = X.ω_b + Un.ω_rw
+    return X_o, U
+
 
 def observe(X):
-    pass #TODO
+    Y = measurement.OptitrackMeasurement()
+    Yn = measurement.OptitrackNoise()
+    if _OPTITRACK_NOISE:
+        pass
+    Y.R_m = X.R+Yn.R_wn
+    Y.p_m = X.p+Yn.p_wn
+    return Y
 
 
 X_list = []
@@ -53,7 +81,7 @@ if __name__ == "__main__":
 
         if t >= t_imu:
             '''Imu data'''
-            X, U = update(X, t)
+            X, U = update(X, dt)
             X_list.append(X)
             U_list.append(U)
             lekf.predict(U, dt_imu)
