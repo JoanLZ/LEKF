@@ -223,10 +223,21 @@ class LEKF:
         
         Y_e = OptitrackMeasurement(R_e,p_e)
         
-        J_h_x = np.array([[J_Re_R, _ZERO],
-                          [_ZERO, J_pe_p]])
-        J_h_v = np.array([[J_Re_Rwn, _ZERO],
-                         [_ZERO, J_pe_pwn]])
+        J_h_x = np.zeros(6)
+
+        J_h_x[0:3,0:3] = J_Re_R
+        J_h_x[3:6,3:6] = J_pe_p
+       
+        # J_h_x = np.array([[J_Re_R, _ZERO],
+        #                   [_ZERO, J_pe_p]])
+        
+        J_h_v = np.zeros(6)
+        J_h_v[0:3,0:3] = J_Re_Rwn
+        J_h_v[3:6,3:6] = J_pe_pwn
+
+        # J_h_v = np.array([[J_Re_Rwn, _ZERO],
+        #                  [_ZERO, J_pe_pwn]])
+        
         return Y_e, J_h_x, J_h_v
     
     # Correction
@@ -261,11 +272,21 @@ class LEKF:
 
         z = OptitrackNoise(R_z, p_z)
 
-        J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
-                          [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
+        J_z_x = np.zeros([6,15])
+
+        J_z_x[0:3,0:3] = J_Rz_R
+        J_z_x[3:6,9:12] = J_pz_p
+
+        # J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
+        #                   [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
         
-        J_z_v = np.array([[J_Rz_Rwn,    _ZERO],
-                          [   _ZERO, J_pz_pwn]])
+        J_z_v=np.zeros(6)
+
+        J_z_v[0:3,0:3] = J_Rz_Rwn
+        J_z_v[3:6,3:6] = J_pz_pwn
+
+        # J_z_v = np.array([[J_Rz_Rwn,    _ZERO],
+        #                   [   _ZERO, J_pz_pwn]])
 
         return z, J_z_x, J_z_v
 
