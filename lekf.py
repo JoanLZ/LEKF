@@ -51,7 +51,7 @@ class LEKF:
 
         Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self.V @ J_z_v.transpose()
 
-        K = - self.P @ J_z_x.transpose() @ np.inv(Z)
+        K = - self.P @ J_z_x.transpose() @ np.linalg.inv(Z)
 
         R_out  = self.X.R   + K[:3,:3]*z.R_wn + K[:3,3:]*z.p_wn
         v_out  = self.X.v   + K[3:6,:3]*z.R_wn + K[3:6,3:]*z.p_wn
