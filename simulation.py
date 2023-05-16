@@ -16,40 +16,44 @@ _TIME = 15  # [s]
 # NOISE
 _IMU_NOISE = False
 _OPTITRACK_NOISE = False
+
 # Sigmas
 w_sigmas = measurement.ImuNoise(0.1*np.ones(3), 0.1*np.ones(3),
                                 0.01*np.ones(3), 0.01*np.ones(3))
-v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.1*np.ones(SO3.DoF)), 0.1*np.ones(3))
+v_sigmas = measurement.OptitrackNoise(
+    SO3Tangent(0.1*np.ones(SO3.DoF)), 0.1*np.ones(3))
 
 # Initialitzation of covariances
-#first sigma, then sigma² = variance, and then the covariance matrix.
+# first sigma, then sigma² = variance, and then the covariance matrix.
 
 # Covariance of the State
 
-p_sigmas = np.array([0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1])
-                     #[std_error R,std_error v,std_error p,std_error ab,std_error wb ] 
+p_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1,
+                    0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
 
 P0 = np.diagflat(np.squares(p_sigmas))
 
 # Covariance of the Measurment IMU
-q_sigmas = np.array([0.1,0.1,0.1,0.1,0.1,0.1])
-                     #[std_error ab,std_error ωb] 
+q_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+# [std_error ab,std_error ωb]
 
 Q0 = np.diagflat(np.squares(q_sigmas))
 
 # Covariance of the IMU bias
-w_sigmas = np.array([0.1,0.1,0.1,0.1,0.1,0.1])
-                     #[std_error R,std_error v]
+w_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+# [std_error R,std_error v]
 
 W0 = np.diagflat(np.squares(w_sigmas))
 
 # Covariance of the Measurment Optitrack
-v_sigmas = np.array([0.1,0.1,0.1,0.1,0.1,0.1])
-                     #[std_error R,std_error v,std_error p,std_error ab,std_error wb ] 
+v_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
 
 V0 = np.diagflat(np.squares(v_sigmas))
 
 g = np.array([0, 0, -9.81])
+
 
 def update(X, dt):
     U = measurement.ImuMeasurement()
@@ -57,7 +61,7 @@ def update(X, dt):
     X_o = state.State()
     # True acc & angular velocity
     a = np.zeros(3)
-    ω = np.array([0,0,1])
+    ω = np.array([0, 0, 1])
     if _IMU_NOISE:
         pass
     # Command U
@@ -101,7 +105,7 @@ if __name__ == "__main__":
     X = state.State(SO3.Identity(), np.array([1, 1, 0]), np.zeros(3),
                     np.zeros(3), np.zeros(3))
 
-    lekf = LEKF(X,P0,Q0,W0,V0) #TODO
+    lekf = LEKF(X, P0, Q0, W0, V0)  # TODO
 
     '''Simulation loop'''
     for t in np.arange(0, _TIME, dt):
