@@ -60,7 +60,7 @@ def update(X, U_t, dt):
     Un = measurement.ImuNoise()
     X_o = state.State()
     if _IMU_NOISE:
-        Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3)
+        Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3) # random value between -1 and 1 for each var.
         Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
         Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
         Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
@@ -85,12 +85,11 @@ def observe(X):
     Y.p_m = X.p+Yn.p_wn
     return Y
 
-
-X_list = []
-U_list = []
-Y_list = []
-X_est_list = []
-P_est_list = []
+X_list = [] # List to stock simulated states
+U_list = [] # List to stock simulated control (IMU measurement)
+Y_list = [] # List to stock simulated OptiTrack 
+X_est_list = [] # List to stock estimated states
+P_est_list = [] # List to stock estimated covariance
 
 if __name__ == "__main__":
     '''Initialisation'''
@@ -103,19 +102,19 @@ if __name__ == "__main__":
     t = 0  # global tracking [s]
 
     X = state.State(SO3.Identity(), np.array([0, 1, 0]), np.zeros(3),
-                    np.zeros(3), np.zeros(3))
+                    np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
 
-    lekf = LEKF(X, P0, Q0, W0, V0)
+    lekf = LEKF(X, P0, Q0, W0, V0) # Definig initial state and covariances as lie ektended kalman filter class
 
     '''Simulation loop'''
-    for t in np.arange(0, _TIME, dt):
+    for t in np.arange(0, _TIME, dt): 
 
         if t >= t_imu:
             '''Imu data'''
             # True acc & angular velocity
-            U_t = measurement.ImuMeasurement()
-            U_t.a_m = np.array([-np.cos(t_imu), -np.sin(t_imu), 0])
-            U_t.ω_m = np.array([0, 0, 1])
+            U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
+            U_t.a_m = np.array([-np.cos(t_imu), -np.sin(t_imu), 0]) #Expressing a circle around z axis by the accel.
+            U_t.ω_m = np.array([0, 0, 1]) #rotation around z.
             X, U = update(X, U_t, dt_imu)
             X_list.append(X)
             U_list.append(U)
@@ -136,3 +135,15 @@ if __name__ == "__main__":
             t_ot = t_ot + dt_ot
 
     '''Data process'''
+
+import get_x_n_y
+
+x_r, y_r = get_x_n_y.get_X_n_Y(X_list)
+x_est, y_est = get_x_n_y.get_X_n_Y(X_est_list)
+
+# # Plotting both the curves simultaneously
+# plt.plot(x_r, y_r, color='red', label='real', ls = "-")
+# plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
+
+# plt.legend()
+# plt.show()
