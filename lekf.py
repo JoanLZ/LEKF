@@ -41,34 +41,27 @@ class LEKF:
         self.P = P_out
 
     def correct(self, Y):
-
-        V = OptitrackNoise()
-
-        # e, H_x, X_v = self.h(self.X, V)
-
         z, J_z_x, J_z_v = self.z(Y)
 
         Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self.V @ J_z_v.transpose()
 
         K = - self.P @ J_z_x.transpose() @ np.linalg.inv(Z)
 
-        R_out = self.X.R + K[:3, :3]*z.R_wn + K[:3, 3:]*z.p_wn
-        v_out = self.X.v + K[3:6, :3]*z.R_wn + K[3:6, 3:]*z.p_wn
-        p_out = self.X.p + K[6:9, :3]*z.R_wn + K[6:9, 3:]*z.p_wn
-        ab_out = self.X.a_b + K[9:12, :3]*z.R_wn + K[9:12, 3:]*z.p_wn
-        ωb_out = self.X.ω_b + K[12:15, :3]*z.R_wn + K[12:15, 3:]*z.p_wn
+        R_out = self.X.R + SO3Tangent(K[:3, :3]@z.R_wn.coeffs_copy() + K[:3, 3:]@z.p_wn)
+        v_out = self.X.v + K[3:6, :3]@z.R_wn.coeffs_copy() + K[3:6, 3:]@z.p_wn
+        p_out = self.X.p + K[6:9, :3]@z.R_wn.coeffs_copy() + K[6:9, 3:]@z.p_wn
+        ab_out = self.X.a_b + K[9:12, :3]@z.R_wn.coeffs_copy() + K[9:12, 3:]@z.p_wn
+        ωb_out = self.X.ω_b + K[12:, :3]@z.R_wn.coeffs_copy() + K[12:, 3:]@z.p_wn
 
         X_out = State(R_out, v_out, p_out, ab_out, ωb_out)
 
-        P_out = self.P - K @ Z @ K.transpose
+        P_out = self.P - K @ Z @ K.transpose()
 
         self.X = X_out
         self.P = P_out
 
-    # Noisless measurments from IMU (wrt world frame)
 
     # Acceleration
-
     def a(self, X, U, W):
         g = np.array([0, 0, -9.81])
         # compute the true a
@@ -290,7 +283,7 @@ class LEKF:
         p_z = Y.p_m - Y_e.p_m
         J_pz_pe = -np.identity(3)
 
-        J_pe_p = H_x[3:6, 3:6]
+        J_pe_p = H_x[3:6, 6:9]
         J_pz_p = J_pz_pe @ J_pe_p
 
         J_pe_pwn = H_v[3:6, 3:6]
