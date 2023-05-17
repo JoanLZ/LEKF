@@ -15,13 +15,13 @@ _TIME = 15  # [s]
 
 # NOISE
 _IMU_NOISE = True
-_OPTITRACK_NOISE = False
+_OPTITRACK_NOISE = True
 
 # Sigmas
-w_sigmas = measurement.ImuNoise(0.01*np.ones(3), 0.01*np.ones(3),
-                                0.001*np.ones(3), 0.001*np.ones(3))
+w_sigmas = measurement.ImuNoise(6.3e-5*np.ones(3), 8.7e-5*np.ones(3),
+                                4e-4*np.ones(3), 3.9e-5*np.ones(3))
 v_sigmas = measurement.OptitrackNoise(
-    SO3Tangent(0.1*np.ones(SO3.DoF)), 0.1*np.ones(3))
+    SO3Tangent(0.001*np.ones(SO3.DoF)), 0.001*np.ones(3))
 
 # Initialitzation of covariances
 # first sigma, then sigma² = variance, and then the covariance matrix.
@@ -47,10 +47,10 @@ w_joan_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 W0 = np.diagflat(np.square(w_joan_sigmas))
 
 # Covariance of the Measurment Optitrack
-v_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+v_joan_sigmas = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 # [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
 
-V0 = np.diagflat(np.square(v_sigmas))
+V0 = np.diagflat(np.square(v_joan_sigmas))
 
 g = np.array([0, 0, -9.81])
 
@@ -80,7 +80,8 @@ def observe(X):
     Y = measurement.OptitrackMeasurement()
     Yn = measurement.OptitrackNoise()
     if _OPTITRACK_NOISE:
-        pass
+        Yn.R_wn = SO3Tangent(v_sigmas.R_wn.coeffs_copy()*np.random.uniform(-1,1,3)) # random value between -1 and 1 for each var.
+        Yn.p_wn = v_sigmas.p_wn*np.random.uniform(-1,1,3)
     Y.R_m = X.R+Yn.R_wn
     Y.p_m = X.p+Yn.p_wn
     return Y
@@ -126,11 +127,11 @@ if __name__ == "__main__":
 
         if t >= t_ot:
             '''Optitrack data'''
-            # Y = observe(X)
-            # Y_list.append(Y)
-            # lekf.correct(Y)
-            # X_est_list.append(lekf.X)
-            # P_est_list.append(lekf.P)
+            Y = observe(X)
+            Y_list.append(Y)
+            lekf.correct(Y)
+            #X_est_list.append(lekf.X)
+            #P_est_list.append(lekf.P)
 
             t_ot = t_ot + dt_ot
 
@@ -141,9 +142,9 @@ import get_x_n_y
 x_r, y_r = get_x_n_y.get_X_n_Y(X_list)
 x_est, y_est = get_x_n_y.get_X_n_Y(X_est_list)
 
-# # Plotting both the curves simultaneously
-# plt.plot(x_r, y_r, color='red', label='real', ls = "-")
-# plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
+# Plotting both the curves simultaneously
+plt.plot(x_r, y_r, color='red', label='real', ls = "-")
+plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
 
-# plt.legend()
-# plt.show()
+plt.legend()
+plt.show()
