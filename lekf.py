@@ -47,11 +47,14 @@ class LEKF:
 
         K = - self.P @ J_z_x.transpose() @ np.linalg.inv(Z)
 
-        R_out = self.X.R + SO3Tangent(K[:3, :3]@z.R_wn.coeffs_copy() + K[:3, 3:]@z.p_wn)
+        R_out = self.X.R + \
+            SO3Tangent(K[:3, :3]@z.R_wn.coeffs_copy() + K[:3, 3:]@z.p_wn)
         v_out = self.X.v + K[3:6, :3]@z.R_wn.coeffs_copy() + K[3:6, 3:]@z.p_wn
         p_out = self.X.p + K[6:9, :3]@z.R_wn.coeffs_copy() + K[6:9, 3:]@z.p_wn
-        ab_out = self.X.a_b + K[9:12, :3]@z.R_wn.coeffs_copy() + K[9:12, 3:]@z.p_wn
-        ωb_out = self.X.ω_b + K[12:, :3]@z.R_wn.coeffs_copy() + K[12:, 3:]@z.p_wn
+        ab_out = self.X.a_b + \
+            K[9:12, :3]@z.R_wn.coeffs_copy() + K[9:12, 3:]@z.p_wn
+        ωb_out = self.X.ω_b + \
+            K[12:, :3]@z.R_wn.coeffs_copy() + K[12:, 3:]@z.p_wn
 
         X_out = State(R_out, v_out, p_out, ab_out, ωb_out)
 
@@ -60,8 +63,8 @@ class LEKF:
         self.X = X_out
         self.P = P_out
 
-
     # Acceleration
+
     def a(self, X, U, W):
         g = np.array([0, 0, -9.81])
         # compute the true a
@@ -204,7 +207,7 @@ class LEKF:
         #                   [J_p_am,   _ZERO],
         #                   [_ZERO,   _ZERO],
         #                   [_ZERO,   _ZERO]])
-        
+
         J_f_u = np.zeros([15, 6])
         J_f_u[0:3, 3:6] = J_R_ωm
         J_f_u[3:6, 0:3] = J_v_am
@@ -230,7 +233,7 @@ class LEKF:
         # Defining the Jacobians for manif to compute.
         J_Re_R = np.ndarray([SO3.DoF, SO3.DoF])
         # Defining the Jacobians for manif to compute.
-        J_Re_Rwn = np.ndarray([SO3.DoF, SO3Tangent.DoF])
+        J_Re_Rwn = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF])
         # R_e = R (+) R_wn
         R_e = X.R.rplus(V.R_wn, J_Re_R, J_Re_Rwn)
 
@@ -239,24 +242,25 @@ class LEKF:
         # jacobian
         J_pe_p = np.identity(3)
         J_pe_pwn = np.identity(3)
-        
-        Y_e = OptitrackMeasurement(R_e,p_e)
-        
+
+        Y_e = OptitrackMeasurement(R_e, p_e)
+
+        # J_h_x = np.array([[J_Re_R, _ZERO, _ZERO, _ZERO, _ZERO],
+        #                   [_ZERO, _ZERO, J_pe_p, _ZERO, _ZERO]])
+
         J_h_x = np.zeros([6, 15])
 
-        J_h_x[0:3,0:3] = J_Re_R
-        J_h_x[3:6,3:6] = J_pe_p
-       
-        # J_h_x = np.array([[J_Re_R, _ZERO],
-        #                   [_ZERO, J_pe_p]])
-        
-        J_h_v = np.zeros([6,6])
-        J_h_v[0:3,0:3] = J_Re_Rwn
-        J_h_v[3:6,3:6] = J_pe_pwn
+        J_h_x[0:3, 0:3] = J_Re_R
+        J_h_x[3:6, 6:9] = J_pe_p
 
         # J_h_v = np.array([[J_Re_Rwn, _ZERO],
         #                  [_ZERO, J_pe_pwn]])
-        
+
+        J_h_v = np.zeros([6, 6])
+
+        J_h_v[0:3, 0:3] = J_Re_Rwn
+        J_h_v[3:6, 3:6] = J_pe_pwn
+
         return Y_e, J_h_x, J_h_v
 
     # Correction
@@ -291,21 +295,21 @@ class LEKF:
 
         z = OptitrackNoise(R_z, p_z)
 
-        J_z_x = np.zeros([6,15])
-
-        J_z_x[0:3,0:3] = J_Rz_R
-        J_z_x[3:6,9:12] = J_pz_p
-
         # J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
         #                   [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
-        
-        J_z_v=np.zeros([6,6])
 
-        J_z_v[0:3,0:3] = J_Rz_Rwn
-        J_z_v[3:6,3:6] = J_pz_pwn
+        J_z_x = np.zeros([6, 15])
+
+        J_z_x[0:3, 0:3] = J_Rz_R
+        J_z_x[3:6, 6:9] = J_pz_p
 
         # J_z_v = np.array([[J_Rz_Rwn,    _ZERO],
         #                   [   _ZERO, J_pz_pwn]])
+
+        J_z_v = np.zeros([6, 6])
+
+        J_z_v[0:3, 0:3] = J_Rz_Rwn
+        J_z_v[3:6, 3:6] = J_pz_pwn
 
         return z, J_z_x, J_z_v
 
