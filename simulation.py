@@ -8,65 +8,93 @@ from lekf import LEKF
 import state
 import measurement
 
-# RATE & TIME
+# RATE & TIME 
 
 _IMU_RATE = 1000  # [Hz]
 _OPTITRACK_RATE = 100  # [Hz]
-_TIME = 15  # [s]
+_TIME = 120 # [s]
 
-# NOISE
+# SET NOISE
 _IMU_NOISE = True
 _OPTITRACK_NOISE = True
 
+# SET CORRECTION
+_CORRECTION = True
 
-# Sigmas
-w_sigmas = measurement.ImuNoise(6.3e-5*np.ones(3), 8.7e-5*np.ones(3), # a_wn, w_wn
-                                4e-4*np.ones(3), 3.9e-5*np.ones(3)) # a_rw, w_wr
-v_sigmas = measurement.OptitrackNoise(
-    SO3Tangent(0.001*np.ones(SO3.DoF)), 0.001*np.ones(3))
+# GRAVITY
+g = np.array([0, 0, -9.81])
 
-# Initialitzation of covariances
-# first sigma, then sigma² = variance, and then the covariance matrix.
+# Sigmas for the simulated noise
+# Noise inside IMU commands. White and Random Walk
+Sigma_W_a_wn = 6.3e-5 #m/s²
+Sigma_W_ω_wn = 8.7e-5 #rad/s
+Sigma_W_a_rw = 0#4e-4   #m/s²
+Sigma_W_ω_rw = 0# 3.9e-5 #rad/s
 
-# Covariance of the State
+w_sigmas = measurement.ImuNoise(Sigma_W_a_wn*np.ones(3), Sigma_W_ω_wn*np.ones(3), # a_wn, w_wn
+                                Sigma_W_a_rw*np.ones(3), Sigma_W_ω_rw *np.ones(3))   # a_rw, w_wr
 
-p_sigmas = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4,
-                     1e-4, 1e-4, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3])
-# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
-#p_sigmas = np.ones(15)
+# Noise inside OptiTrack Measurments 
+v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.001*np.ones(SO3.DoF)), 0.001*np.ones(3)) # R_wn, p_wn
 
-P0 = np.diagflat(np.square(p_sigmas))
+# Initialitzation of covariances first sigma (std. deviation), then sigma² (variance), and then the covariance matrix.
 
-# Covariance of the Measurement IMU
-q_sigmas = np.array([6.3e-5, 6.3e-5, 6.3e-5, 8.7e-5, 8.7e-5, 8.7e-5])
-# [std_error ab,std_error ωb]
+# Sigmas of P
+Sigma_P_R = 1e-1; # Initial Value of std. deviation of the orientation.
+Sigma_P_v = 1e-1; # Initial Value of std. deviation of the lineal velocity.
+Sigma_P_p = 1e-1; # Initial Value of std. deviation of the position.
+Sigma_P_ab = 0#1e-4; # Initial Value of std. deviation of the lineal acceleration bias.
+Sigma_P_ωb = 0#1e-4; # Initial Value of std. deviation of the angular velocity bias.
 
-Q0 = np.diagflat(np.square(q_sigmas))
+P_sigmas = np.array([Sigma_P_R, Sigma_P_R, Sigma_P_R, Sigma_P_v, Sigma_P_v, Sigma_P_v, Sigma_P_p, Sigma_P_p, Sigma_P_p, Sigma_P_ab, Sigma_P_ab, Sigma_P_ab, Sigma_P_ωb, Sigma_P_ωb, Sigma_P_ωb])
 
-# Covariance of the IMU bias
-w_joan_sigmas = np.array([6.3e-5, 6.3e-5, 6.3e-5, 3.9e-5, 3.9e-5, 3.9e-5])
-# [std_error R,std_error v]
+# Covariance matrix P
 
-W0 = np.diagflat(np.square(w_joan_sigmas))
+P0 = np.diagflat(np.square(P_sigmas))
 
-# Covariance of the Measurment Optitrack
-v_joan_sigmas = np.array([4e-4, 4e-4, 4e-4, 1e-3, 1e-3, 1e-3])
-# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
+# Sigmas of Q
+Sigma_Q_a_wn = Sigma_W_a_wn
+Sigma_Q_ω_wn = Sigma_W_ω_wn
+
+Q_sigmas = np.array([Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn])
+
+# Covariance matrix Q
+
+Q0 = np.diagflat(np.square(Q_sigmas))
+
+# Sigmas of W
+
+W_joan_sigmas = np.array([Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_ω_rw, Sigma_W_ω_rw, Sigma_W_ω_rw])
+
+# Covariance matrix W
+
+W0 = np.diagflat(np.square(W_joan_sigmas))
+
+# Sigmas of V
+Sigma_V_R = 4e-3
+Sigma_V_ω = 1e-2
+
+v_joan_sigmas = np.array([Sigma_V_R , Sigma_V_R , Sigma_V_R , Sigma_V_ω, Sigma_V_ω, Sigma_V_ω])
+
+# Covariance matrix V
 
 V0 = np.diagflat(np.square(v_joan_sigmas))
 
-g = np.array([0, 0, -9.81])
-
+# Updadte function simulates the inputs of the measurments done by IMU.
 
 def update(X, U_t, dt):
     U = measurement.ImuMeasurement()
     Un = measurement.ImuNoise()
     X_o = state.State()
     if _IMU_NOISE:
-        Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3) # random value between -1 and 1 for each var.
-        Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
-        Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
-        Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
+        # Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3) # random value between -1 and 1 for each var.
+        # Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
+        # Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
+        # Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
+        Un.a_wn = np.random.uniform(0,w_sigmas.a_wn,3) 
+        Un.ω_wn = np.random.uniform(0,w_sigmas.ω_wn,3)
+        Un.a_rw = np.random.uniform(0,w_sigmas.a_rw,3)
+        Un.ω_rw = np.random.uniform(0,w_sigmas.ω_rw,3)
     # Command U
     U.a_m = X.R.inverse().act(U_t.a_m-g)+X.a_b+Un.a_wn
     U.ω_m = U_t.ω_m + X.ω_b + Un.ω_wn
@@ -83,10 +111,10 @@ def observe(X):
     Y = measurement.OptitrackMeasurement()
     Yn = measurement.OptitrackNoise()
     if _OPTITRACK_NOISE:
-        Yn.R_wn = SO3Tangent(v_sigmas.R_wn.coeffs_copy()*np.random.uniform(-1,1,3)) # random value between -1 and 1 for each var.
-        Yn.p_wn = v_sigmas.p_wn*np.random.uniform(-1,1,3)
-    Y.R_m = X.R+Yn.R_wn
-    Y.p_m = X.p+Yn.p_wn
+        Yn.R_wn = SO3Tangent(np.random.uniform(0,v_sigmas.R_wn.coeffs_copy(),3)) 
+        Yn.p_wn = np.random.uniform(0,v_sigmas.p_wn,3)
+    Y.R_m = X.R+Yn.R_wn # ?
+    Y.p_m = X.p+Yn.p_wn # ?
     return Y
 
 X_list = [] # List to stock simulated states
@@ -95,7 +123,7 @@ Y_list = [] # List to stock simulated OptiTrack
 X_est_list = [] # List to stock estimated states
 P_est_list = [] # List to stock estimated covariance
 Z_list = [] # List of z
-H_list = []
+H_list = [] # List of h
 
 if __name__ == "__main__":
     '''Initialisation'''
@@ -110,7 +138,11 @@ if __name__ == "__main__":
     X = state.State(SO3.Identity(), np.array([0, -1, 0]), np.zeros(3),
                     np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
 
-    lekf = LEKF(X, P0, Q0, W0, V0) # Definig initial state and covariances as lie ektended kalman filter class
+    X0 = state.State(SO3.Identity(), np.array([0.1, -1.1, 0.1]), 0.01*np.ones(3),
+                    np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
+
+
+    lekf = LEKF(X0, P0, Q0, W0, V0) # Definig initial state and covariances as lie ektended kalman filter class
 
     '''Simulation loop'''
     for t in np.arange(0, _TIME, dt): 
@@ -119,9 +151,9 @@ if __name__ == "__main__":
             '''Imu data'''
             # True acc & angular velocity
             U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
-            U_t.a_m = np.array([0, 0, 0]) #Expressing a circle around z axis by the accel.
+            U_t.a_m = np.array([-2, 3, 0]) #Expressing...
             #U_t.a_m = np.array([np.cos(t_imu), np.sin(t_imu), 0]) #Expressing a circle around z axis by the accel.
-            U_t.ω_m = np.array([0, 0, 1]) #rotation around z.
+            U_t.ω_m = np.array([0, 0, 0]) #rotation around z.
             X, U = update(X, U_t, dt_imu)
             X_list.append(X) #storing real values of X
             U_list.append(U) #storing real values of u (IMU)
@@ -140,16 +172,19 @@ if __name__ == "__main__":
             Y_list.append(Y)
             
             V = measurement.OptitrackNoise()
+
             h, _, _ = lekf.h(lekf.X, V)
             
             H_list.append(h)
 
-            #z, _, _ = lekf.z(Y)
+            z, _, _ = lekf.z(Y)
 
-            #Z_list.append(z)
+            Z_list.append(z)
 
-            lekf.correct(Y)
+            if _CORRECTION:
+                lekf.correct(Y)
 
+            
             #X_est_list.append(lekf.X
             # )
         
@@ -163,12 +198,12 @@ import get_x_n_y
 x_r, y_r = get_x_n_y.get_X_n_Y(X_list)
 x_est, y_est = get_x_n_y.get_X_n_Y(X_est_list)
 
-# z_x = [ze_i.R_wn.coeffs()[0] for ze_i in Z_list]
-# z_y = [ze_i.R_wn.coeffs()[1] for ze_i in Z_list]
-# z_z = [ze_i.R_wn.coeffs()[2] for ze_i in Z_list]
-# z_x_px = [ze_i.p_wn[0] for ze_i in Z_list]
-# z_x_py = [ze_i.p_wn[1] for ze_i in Z_list]
-# z_x_pz = [ze_i.p_wn[2] for ze_i in Z_list]
+z_x = [ze_i.R_wn.coeffs()[0] for ze_i in Z_list]
+z_y = [ze_i.R_wn.coeffs()[1] for ze_i in Z_list]
+z_z = [ze_i.R_wn.coeffs()[2] for ze_i in Z_list]
+z_x_px = [ze_i.p_wn[0] for ze_i in Z_list]
+z_x_py = [ze_i.p_wn[1] for ze_i in Z_list]
+z_x_pz = [ze_i.p_wn[2] for ze_i in Z_list]
 
 h_x = [he_i.R_m.coeffs()[0] for he_i in H_list]
 h_y = [he_i.R_m.coeffs()[1] for he_i in H_list]
@@ -181,6 +216,7 @@ h_x_pz = [he_i.p_m[2] for he_i in H_list]
 t_imu = np.arange(0, _TIME, dt_imu)
 t_ot = np.arange(0,_TIME,dt_ot)
 # # Plotting both the curves simultaneously
+
 plt.plot(x_r, y_r, color='red', label='real', ls = "-")
 plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
 
@@ -194,34 +230,34 @@ P_p_x = [(x_i)[0] for x_i in P_p]
 P_p_y = [(x_i)[1] for x_i in P_p]
 P_p_z = [(x_i)[2] for x_i in P_p]
 
-plt.plot(t_imu, P_p_x,color ='red', label='P_px', ls = "-")
-plt.plot(t_imu, P_p_y,  color='blue', label='P_py',ls = "--")
-plt.plot(t_imu, P_p_z, color='green', label='P_pz', ls = "-")
+plt.semilogy(t_imu, P_p_x, color ='red', label='P_px', ls = "-")
+plt.semilogy(t_imu, P_p_y,  color='blue', label='P_py',ls = "--")
+plt.semilogy(t_imu, P_p_z, color='green', label='P_pz', ls = "-")
 
 plt.legend()
 plt.show()
 
 
-# # Plotting R_z_x, R_z_y, R_z_z
-# plt.plot( t_ot, z_x,color='red', label='Z_R_x', ls = "-")
-# plt.plot( t_ot ,z_y, color='green', label='Z_R_y',ls = "-")
-# plt.plot( t_ot ,z_z, color='blue', label='Z_R_z',ls = "-")
+# # Plotting correction (z), variables: Z.R (x,y,z) and Z.p (x,y,z)
+plt.plot( t_ot, z_x, color='red', label='Z_R_x', ls = "-")
+plt.plot( t_ot ,z_y, color='green', label='Z_R_y',ls = "-")
+plt.plot( t_ot ,z_z, color='blue', label='Z_R_z',ls = "-")
 
-# plt.plot( t_ot ,z_x_px, color='red', label='Z_x_p',ls = ":")
-# plt.plot( t_ot ,z_x_py, color='green', label='Z_y_p',ls = ":")
-# plt.plot( t_ot ,z_x_pz, color='blue', label='Z_z_p',ls = ":")
+plt.plot( t_ot ,z_x_px, color='red', label='Z_x_p',ls = ":")
+plt.plot( t_ot ,z_x_py, color='green', label='Z_y_p',ls = ":")
+plt.plot( t_ot ,z_x_pz, color='blue', label='Z_z_p',ls = ":")
 
-# plt.legend()
-# plt.show()
+plt.legend()
+plt.show()
 
-# Plotting R_z_x, R_z_y, R_z_z
-plt.plot( t_ot, h_x, color='red', label='Z_R_x', ls = "-")
-plt.plot( t_ot ,h_y, color='green', label='Z_R_y',ls = "-")
-plt.plot( t_ot ,h_z, color='blue', label='Z_R_z',ls = "-")
+# Plotting (h), variables: h.R (x,y,z) and h.p(x,y,z)
+plt.plot( t_ot, h_x, color='red', label='h_R_x', ls = "-")
+plt.plot( t_ot ,h_y, color='green', label='h_R_y',ls = "-")
+plt.plot( t_ot ,h_z, color='blue', label='h_R_z',ls = "-")
 
-plt.plot( t_ot ,h_x_px, color='red', label='Z_x_p',ls = ":")
-plt.plot( t_ot ,h_x_py, color='green', label='Z_y_p',ls = ":")
-plt.plot( t_ot ,h_x_pz, color='blue', label='Z_z_p',ls = ":")
+plt.plot( t_ot ,h_x_px, color='red', label='h_x_p',ls = ":")
+plt.plot( t_ot ,h_x_py, color='green', label='h_y_p',ls = ":")
+plt.plot( t_ot ,h_x_pz, color='blue', label='h_z_p',ls = ":")
 
 plt.legend()
 plt.show()

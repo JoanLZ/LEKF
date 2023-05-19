@@ -35,7 +35,7 @@ class LEKF:
         # We do this by taking in account all the inputs covariances and the jacobians mentioned before.
         # P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
         #     F_w @ self.W @ F_w.transpose()
-        P_out = F_x @ self.P @ F_x.transpose() #+ F_u @ self.Q @ F_u.transpose() #+F_w @ self.W @ F_w.transpose()
+        P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() +F_w @ self.W @ F_w.transpose()
 
         self.X = X_out  # We upload the estimated state value.
         # We upload the covariance matrix of the estimated value.
@@ -62,8 +62,8 @@ class LEKF:
         P_out = self.P - K @ Z @ K.transpose()
 
         self.X = X_out
-        self.P = P_out
-
+        # self.P = P_out
+        self.P = (P_out+P_out.T)/2
     # Acceleration
 
     def a(self, X, U, W):
