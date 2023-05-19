@@ -33,8 +33,9 @@ class LEKF:
 
         # The prediction step also has to upload the value of the covariance matrix P (matrix of the state).
         # We do this by taking in account all the inputs covariances and the jacobians mentioned before.
-        P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
-            F_w @ self.W @ F_w.transpose()
+        # P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
+        #     F_w @ self.W @ F_w.transpose()
+        P_out = F_x @ self.P @ F_x.transpose() #+ F_u @ self.Q @ F_u.transpose() #+F_w @ self.W @ F_w.transpose()
 
         self.X = X_out  # We upload the estimated state value.
         # We upload the covariance matrix of the estimated value.
@@ -109,6 +110,9 @@ class LEKF:
         # remove bias and whiet noise from measurement
         # equation
         # w = w_m - w_b defining wmeasured and wbias as a 3D vector.
+        # J_ω_R = np.zeros([SO3.DoF,SO3.DoF])
+        J_ω_ωm = np.zeros(3)
+        # ω = X.R.act(U.ω_m,J_ω_R,J_ω_ωm) - X.ω_b - W.ω_wn
         ω = U.ω_m - X.ω_b - W.ω_wn
         # jacobian
         J_ω_ωm = np.identity(3)
@@ -123,40 +127,46 @@ class LEKF:
 
         X_o = State(X.R, X.v, X.p, X.a_b, X.ω_b)
         # compute real values of U
-        a, J_a_R, J_a_am, J_a_ab, _ = self.a(
-            X, U, W)  # real a and its jacobians
-        ω, J_ω_ωm, J_ω_ωb, _ = self.ω(X, U, W)  # real ω and its jacobians
+        a, J_a_R, J_a_am, J_a_ab, _ = self.a(X_o, U, W)  # real a and its jacobians
+        ω, J_ω_ωm, J_ω_ωb, _ = self.ω(X_o, U, W)  # real ω and its jacobians
         # compute value
         # equation
         # Defining the Jacobians for manif to compute.
-        J_RExp_R = np.ndarray([SO3.DoF, X.R.DoF])
+        J_RExp_R = np.ndarray([SO3.DoF, X_o.R.DoF]) # J_RExpωdt_R
         # Defining the Jacobians for manif to compute.
-        J_RExp_ωdt = np.ndarray([SO3.DoF, ω.size])
-        X_o.R = X.R.rplus(SO3Tangent(ω*dt), J_RExp_R,
+        J_RExp_ωdt = np.ndarray([SO3.DoF, ω.size]) # J_RExpωdt_ωdt
+        X_o.R = X_o.R.rplus(SO3Tangent(ω*dt), J_RExp_R,
                           J_RExp_ωdt)  # R (+) w*dt = RExp(wdt)
         # jacobian
         # We computed the jacobian of the plus operation wrt to wdt, not w. So lets compute jacobian of wdt wrt w and then apply chain rule.
-        J_ωdt_ω = dt*np.identity(3)
-        J_RExp_ω = J_RExp_ωdt @ J_ωdt_ω  # Chain rule
+        
+        #J_Expωdt_ωdt = SO3Tangent(ω*dt).rjac()
+
+        J_ωdt_ω = dt*np.identity(3) 
+        
+        J_RExp_ω = J_RExp_ωdt @ J_ωdt_ω 
+        #J_RExp_ω = J_RExp_ωdt @ J_Expωdt_ωdt @ J_ωdt_ω  # Chain rule
+        
         J_R_ωm = J_RExp_ω @ J_ω_ωm  # Chain rule
+
         # equation
-        X_o.v = X.v + a*dt  # v =  v + a*dt
+        X_o.v = X_o.v + a*dt  # v =  v + a*dt
         # jacobian
         J_v_v = np.identity(3)
         J_v_a = dt*np.identity(3)
         # equation
-        X_o.p = X.p + X.v*dt + 0.5*a*dt**2  # p =  p + v*dt + 0.5*a*dt²
+        X_o.p = X_o.p + X_o.v*dt + 0.5*a*dt**2  # p =  p + v*dt + 0.5*a*dt²
         # jacobian
         J_p_p = np.identity(3)
         J_p_v = dt*np.identity(3)
-        J_p_a = 0.5*np.identity(3)*dt**2
+        J_p_a = 0.5*np.identity(3)*dt**2 + J_v_a*dt # J_p_a = J_
         # equation
-        X_o.a_b = X.a_b + W.a_rw  # a_b =  a_b + a_r
+        X_o.a_b = X_o.a_b + W.a_rw  # a_b =  a_b + a_r
         # jacobian
         J_ab_ab = np.identity(3)
         J_ab_ar = np.identity(3)
         # equation
-        X_o.ω_b = X.ω_b + W.ω_rw  # ω_b =  ω_b + ω_r
+        X_o.ω_b = X_o.ω_b + W.ω_rw  # ω_b =  ω_b + ω_r
         # jacobian
         J_ωb_ωb = np.identity(3)
         J_ωb_ωr = np.identity(3)
