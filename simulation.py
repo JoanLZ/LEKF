@@ -1,161 +1,155 @@
 #!/usr/bin/python3
 
 import numpy as np
-from matplotlib import pyplot as plt
-from manifpy import SO3, SO3Tangent
 
 from lekf import LEKF
-import state
-import measurement
+from state import State, StateTangent
+from input import Input, InputTangent
+from output import Output, OutputTangent
+from pertubation import Pertubation
 
-# RATE & TIME
+from sim_config import *
 
-_IMU_RATE = 1000  # [Hz]
-_OPTITRACK_RATE = 100  # [Hz]
-_TIME = 15  # [s]
+σ_P = np.array([σ_P_R*np.ones(3),
+                σ_P_v*np.ones(3),
+                σ_P_p*np.ones(3),
+                σ_P_ab*np.ones(3),
+                σ_P_ωb*np.ones(3)]).flatten()
+P0 = np.diagflat(np.square(σ_P))
 
-# NOISE
-_IMU_NOISE = True
-_OPTITRACK_NOISE = False
+σ_Q = np.array([σ_Q_am*np.ones(3),
+                σ_Q_ωm*np.ones(3)]).flatten()
+Q0 = np.diagflat(np.square(σ_Q))
 
-# Sigmas
-w_sigmas = measurement.ImuNoise(6.3e-5*np.ones(3), 8.7e-5*np.ones(3), # a_wn, w_wn
-                                4e-4*np.ones(3), 3.9e-5*np.ones(3)) # a_rw, w_wr
-v_sigmas = measurement.OptitrackNoise(
-    SO3Tangent(0.001*np.ones(SO3.DoF)), 0.001*np.ones(3))
+σ_W = np.array([σ_W_aw*np.ones(3),
+                σ_W_ωw*np.ones(3),
+                σ_W_ar*np.ones(3),
+                σ_W_ωr*np.ones(3)]).flatten()
+W0 = np.diagflat(np.square(σ_W))
 
-# Initialitzation of covariances
-# first sigma, then sigma² = variance, and then the covariance matrix.
+σ_V = np.array([σ_V_Rw*np.ones(3),
+                σ_V_pw*np.ones(3)]).flatten()
+V0 = np.diagflat(np.square(σ_V))
 
-# Covariance of the State
+def command(X: State, t: float) -> any:
+    a = np.array([-np.cos(t), -np.sin(t), 0])
+    ω = np.ones(3)
+    return a, ω
 
-# p_sigmas = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4,
-#                      1e-4, 1e-4, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3])
-# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
-p_sigmas = np.ones(15)
+def update(X: State, t: float, dt: float) -> any:
 
-P0 = np.diagflat(np.square(p_sigmas))
+    R  = X.get_R()
+    v  = X.get_v().coeffs_copy()
+    ab = X.get_ab().coeffs_copy()
+    ωb = X.get_ωb().coeffs_copy()
 
-# Covariance of the Measurement IMU
-q_sigmas = np.array([1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2])
-# [std_error ab,std_error ωb]
+    a, ω = command(X, t)
 
-Q0 = np.diagflat(np.square(q_sigmas))
+    # Pertubation W
+    W = Pertubation.Identity()
+    if IMU_NOISE:
+        W = Pertubation.Random(np.array([σ_sim_aw,
+                                         σ_sim_ωw,
+                                         σ_sim_ar,
+                                         σ_sim_ωr]))
+    aw = W.get_aw().coeffs_copy()
+    ωw = W.get_ωw().coeffs_copy()
+    ar = W.get_ar().coeffs_copy()
+    ωr = W.get_ωr().coeffs_copy()
 
-# Covariance of the IMU bias
-w_joan_sigmas = np.array([1e-3, 1e-3, 1e-3, 1e-3,1e-3, 1e-3])
-# [std_error R,std_error v]
+    # New input U
+    am = R.inverse().act(a-G)+ab+aw
+    ωm = ω + ωb + ωw
+    U = Input(np.array([am, ωm]).flatten())
 
-W0 = np.diagflat(np.square(w_joan_sigmas))
+    # New step ΔX
+    coeffs = np.array([ω*dt, a*dt,
+                       v*dt+0.5*a*(dt**2),
+                       ar, ωr]).flatten()
+    ΔX = StateTangent(coeffs)
 
-# Covariance of the Measurment Optitrack
-v_joan_sigmas = np.array([1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3])
-# [std_error R,std_error v,std_error p,std_error ab,std_error wb ]
-
-V0 = np.diagflat(np.square(v_joan_sigmas))
-
-g = np.array([0, 0, -9.81])
-
-
-def update(X, U_t, dt):
-    U = measurement.ImuMeasurement()
-    Un = measurement.ImuNoise()
-    X_o = state.State()
-    if _IMU_NOISE:
-        Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3) # random value between -1 and 1 for each var.
-        Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
-        Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
-        Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
-    # Command U
-    U.a_m = X.R.inverse().act(U_t.a_m-g)+X.a_b+Un.a_wn
-    U.ω_m = U_t.ω_m + X.ω_b + Un.ω_wn
-    # New state X
-    X_o.R = X.R.rplus(SO3Tangent(U_t.ω_m*dt))
-    X_o.v = X.v + U_t.a_m*dt
-    X_o.p = X.p + X.v*dt + U_t.a_m*((dt**2)/2)
-    X_o.a_b = X.a_b + Un.a_rw
-    X_o.ω_b = X.ω_b + Un.ω_rw
-    return X_o, U
+    return X+ΔX, U
 
 
-def observe(X):
-    Y = measurement.OptitrackMeasurement()
-    Yn = measurement.OptitrackNoise()
-    if _OPTITRACK_NOISE:
-        Yn.R_wn = SO3Tangent(v_sigmas.R_wn.coeffs_copy()*np.random.uniform(-1,1,3)) # random value between -1 and 1 for each var.
-        Yn.p_wn = v_sigmas.p_wn*np.random.uniform(-1,1,3)
-    Y.R_m = X.R+Yn.R_wn
-    Y.p_m = X.p+Yn.p_wn
-    return Y
+def observe(X: State) -> Output:
+    Y = Output.Bundle(X.get_R(), X.get_p())
 
-X_list = [] # List to stock simulated states
-U_list = [] # List to stock simulated control (IMU measurement)
-Y_list = [] # List to stock simulated OptiTrack 
-X_est_list = [] # List to stock estimated states
-P_est_list = [] # List to stock estimated covariance
+    # Noise
+    V = OutputTangent.Identity()
+    if OPTITRACK_NOISE:
+        coeffs = np.array([np.random.normal(0,σ_sim_Rw,3),
+                           np.random.normal(0,σ_sim_pw,3)]).flatten()
+        V = OutputTangent(coeffs)
+    return Y+V
+
+
+X_sim_list = []  # List of simulated states
+U_sim_list = []  # List of simulated Input (IMU measurement)
+Y_sim_list = []  # List of simulated Ouput (Optitrack measurement)
+X_pre_list = []  # List of estimated states after prediction
+P_pre_list = []  # List of estimated covariance after prediction
+X_cor_list = []  # List of estimated states after correction
+P_cor_list = []  # List of estimated covariance after correction
+Z_list = []  # List of innovation
+H_list = []  # List of expectation
 
 if __name__ == "__main__":
     '''Initialisation'''
-    dt_imu = 1/_IMU_RATE  # [s]
-    dt_ot = 1/_OPTITRACK_RATE  # [s]
-    dt = dt_imu*dt_ot  # [s]
+    dt_imu = 1/IMU_RATE  # [s]
+    dt_ot = 1/OPTITRACK_RATE  # [s]
 
     t_imu = 0  # imu tracking time [s]
     t_ot = 0  # ot tracking time [s]
     t = 0  # global tracking [s]
 
-    X = state.State(SO3.Identity(), np.array([0, -1, 0]), np.zeros(3),
-                    np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
-
-    lekf = LEKF(X, P0, Q0, W0, V0) # Definig initial state and covariances as lie ektended kalman filter class
+    # Definig initial state and covariances as lie ektended kalman filter class
+    lekf = LEKF(X0, P0, Q0, W0, V0)
 
     '''Simulation loop'''
-    for t in np.arange(0, _TIME, dt): 
-
+    while t < TIME:
+        t = min(t_imu, t_ot)
         if t >= t_imu:
             '''Imu data'''
-            # True acc & angular velocity
-            U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
-            U_t.a_m = np.array([0, 0, 0]) #Expressing a circle around z axis by the accel.
-            #U_t.a_m = np.array([np.cos(t_imu), np.sin(t_imu), 0]) #Expressing a circle around z axis by the accel.
-            U_t.ω_m = np.array([0, 0, 1]) #rotation around z.
-            X, U = update(X, U_t, dt_imu)
-            X_list.append(X) #storing real values of X
-            U_list.append(U) #storing real values of u (IMU)
-            lekf.predict(U, dt_imu)
-            X_est_list.append(lekf.X) #sotring estimated values of X
-            P_est_list.append(lekf.P) #sotring estimated values of P
+
+            X, U = update(X, t_imu, dt_imu)
+            X_sim_list.append(X)  # storing simulated values of X
+            U_sim_list.append(U)  # storing simulated values of u (IMU)
+
+            # Prediction
+            if DO_PREDICTION:
+                lekf.predict(U, dt_imu)
+                X_pre_list.append(lekf.X)  # storing estimated values of X
+                P_pre_list.append(lekf.P)  # storing estimated values of P
 
             t_imu = t_imu + dt_imu
-        
+
         if t >= t_ot:
-        
             '''Optitrack data'''
-        
+
             Y = observe(X)
-        
-            Y_list.append(Y)
-        
-            #lekf.correct(Y)
-        
-            #X_est_list.append(lekf.X
-            # )
-        
-            #P_est_list.append(lekf.P
+            Y_sim_list.append(Y)
+
+            # Correction
+            if DO_CORRECTION:
+                # e, _, _ = lekf.h(lekf.X, V_test)
+                # H_list.append(e)
+                # z, _, _ = lekf.z(Y)
+                # Z_list.append(z)
+                lekf.correct(Y)
+                X_cor_list.append(lekf.X)
+                P_cor_list.append(lekf.P)
+
             t_ot = t_ot + dt_ot
 
-    '''Data process'''
+    from matplotlib import pyplot as plt
+    x = [X.get_p().coeffs()[0] for X in X_sim_list]
+    y = [X.get_p().coeffs()[1] for X in X_sim_list]
+    xe = [X.get_p().coeffs()[0] for X in X_pre_list]
+    ye = [X.get_p().coeffs()[1] for X in X_pre_list]
+    plt.plot(x,y, xe, ye)
+    plt.show()
 
-import get_x_n_y
-
-x_r, y_r = get_x_n_y.get_X_n_Y(X_list)
-x_est, y_est = get_x_n_y.get_X_n_Y(X_est_list)
-
-d = [np.linalg.norm(xe_i.p-x_i.p) for xe_i, x_i in zip(X_est_list,X_list)]
-t_imu = np.arange(0, _TIME, dt_imu)
-# Plotting both the curves simultaneously
-plt.plot(x_r, y_r, color='red', label='real', ls = "-")
-plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
-
-plt.legend()
-plt.show()
+    dist = [np.linalg.norm((X.get_p()-Xe.get_p()).coeffs()) for X, Xe in zip(X_sim_list,X_pre_list)]
+    T_imu = np.arange(0,TIME, dt_imu)
+    plt.plot(T_imu,dist)
+    plt.show()
