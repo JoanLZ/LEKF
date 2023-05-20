@@ -2,7 +2,7 @@
 import numpy as np
 from manifpy import *
 
-from input import Input, InputTangent
+from input import Input
 from pertubation import Pertubation
 from output import Output, OutputTangent
 from state import State, StateTangent
