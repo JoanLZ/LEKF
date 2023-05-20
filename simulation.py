@@ -4,7 +4,7 @@ import numpy as np
 
 from lekf import LEKF
 from state import State, StateTangent
-from input import Input, InputTangent
+from input import Input
 from output import Output, OutputTangent
 from pertubation import Pertubation
 
@@ -92,6 +92,9 @@ X_cor_list = []  # List of estimated states after correction
 P_cor_list = []  # List of estimated covariance after correction
 Z_list = []  # List of innovation
 H_list = []  # List of expectation
+T_imu  = []
+T_ot   = []
+
 
 if __name__ == "__main__":
     '''Initialisation'''
@@ -106,11 +109,11 @@ if __name__ == "__main__":
     lekf = LEKF(X0, P0, Q0, W0, V0)
 
     '''Simulation loop'''
-    while t < TIME:
-        t = min(t_imu, t_ot)
+    while t != TIME:
+        t = min(t_imu, t_ot, TIME)
         if t >= t_imu:
             '''Imu data'''
-
+            T_imu.append(t_imu)
             X, U = update(X, t_imu, dt_imu)
             X_sim_list.append(X)  # storing simulated values of X
             U_sim_list.append(U)  # storing simulated values of u (IMU)
@@ -125,16 +128,17 @@ if __name__ == "__main__":
 
         if t >= t_ot:
             '''Optitrack data'''
+            T_ot.append(t_imu)
 
             Y = observe(X)
             Y_sim_list.append(Y)
 
             # Correction
             if DO_CORRECTION:
-                # e, _, _ = lekf.h(lekf.X, V_test)
-                # H_list.append(e)
-                # z, _, _ = lekf.z(Y)
-                # Z_list.append(z)
+                e, _, _ = lekf.h(lekf.X, OutputTangent.Identity())
+                H_list.append(e)
+                z, _, _ = lekf.z(Y)
+                Z_list.append(z)
                 lekf.correct(Y)
                 X_cor_list.append(lekf.X)
                 P_cor_list.append(lekf.P)
@@ -150,6 +154,27 @@ if __name__ == "__main__":
     plt.show()
 
     dist = [np.linalg.norm((X.get_p()-Xe.get_p()).coeffs()) for X, Xe in zip(X_sim_list,X_pre_list)]
-    T_imu = np.arange(0,TIME, dt_imu)
     plt.plot(T_imu,dist)
+    plt.show()
+
+    dist = [np.linalg.norm((X._coeffs-Xe._coeffs)) for X, Xe in zip(X_sim_list,X_pre_list)]
+    plt.plot(T_imu,dist)
+    plt.show()
+
+    z_roll  = [zi.get_ΔRm().coeffs()[0] for zi in Z_list]
+    z_pitch = [zi.get_ΔRm().coeffs()[1] for zi in Z_list]
+    z_yaw   = [zi.get_ΔRm().coeffs()[2] for zi in Z_list]
+    z_x = [zi.get_Δpm().coeffs()[0] for zi in Z_list]
+    z_y = [zi.get_Δpm().coeffs()[1] for zi in Z_list]
+    z_z = [zi.get_Δpm().coeffs()[2] for zi in Z_list]
+
+    plt.plot( T_ot, z_pitch, color='red', label='Z_R_x', ls = "-")
+    plt.plot( T_ot ,z_roll, color='green', label='Z_R_y',ls = "-")
+    plt.plot( T_ot ,z_yaw, color='blue', label='Z_R_z',ls = "-")
+
+    plt.plot( T_ot ,z_x, color='red', label='Z_x_p',ls = ":")
+    plt.plot( T_ot ,z_y, color='green', label='Z_y_p',ls = ":")
+    plt.plot( T_ot ,z_z, color='blue', label='Z_z_p',ls = ":")
+
+    plt.legend()
     plt.show()
