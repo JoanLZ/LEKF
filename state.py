@@ -10,7 +10,7 @@ class State:  # X = [R, v, p, ab, ωb]
         if coeffs.size != 16:
             raise ValueError(
                 f'Size of coeffs should be 16, not {coeffs.size}.')
-        self._coeffs = coeffs.copy()
+        self._coeffs = coeffs.flatten().copy()
 
     def Identity() -> State:
         coeffs = np.zeros(16)
@@ -18,11 +18,13 @@ class State:  # X = [R, v, p, ab, ωb]
         return State(coeffs)
 
     def Bundle(R: SO3, v: R3, p: R3, ab: R3, ωb: R3) -> State:
-        coeffs = np.array([R.coeffs_copy(),
-                           v.coeffs_copy(),
-                           p.coeffs_copy(),
-                           ab.coeffs_copy(),
-                           ωb.coeffs_copy()]).flatten()
+        coeffs = []
+        coeffs.extend(R.coeffs_copy())
+        coeffs.extend(v.coeffs_copy())
+        coeffs.extend(p.coeffs_copy())
+        coeffs.extend(ab.coeffs_copy())
+        coeffs.extend(ωb.coeffs_copy())
+        coeffs = np.array(coeffs).flatten()
         return State(coeffs)
 
     # Get & Set
@@ -64,7 +66,7 @@ class State:  # X = [R, v, p, ab, ωb]
         p = self.get_p().rplus(ΔX.get_Δp())
         ab = self.get_ab().rplus(ΔX.get_Δab())
         ωb = self.get_ωb().rplus(ΔX.get_Δωb())
-        return State.bundle(R, v, p, p, ab, ωb)
+        return State.Bundle(R, v, p, ab, ωb)
 
     def __add__(self, ΔX: StateTangent) -> State:  # X+ΔX
         return self.rplus(ΔX)
@@ -77,18 +79,20 @@ class StateTangent:  # ΔX = [ΔR, Δv, Δp, Δab, Δωb]
         if coeffs.size != 15:
             raise ValueError(
                 f'Size of coeffs should be 15, not {coeffs.size}.')
-        self._coeffs = coeffs.copy()
+        self._coeffs = coeffs.flatten().copy()
 
     def Identity() -> StateTangent:
         coeffs = np.zeros(15)
         return StateTangent(coeffs)
 
     def Bundle(ΔR: SO3Tangent, Δv: R3Tangent, Δp: R3Tangent, Δab: R3Tangent, Δωb: R3Tangent) -> StateTangent:
-        coeffs = np.array([ΔR.coeffs_copy(),
-                           Δv.coeffs_copy(),
-                           Δp.coeffs_copy(),
-                           Δab.coeffs_copy(),
-                           Δωb.coeffs_copy()]).flatten()
+        coeffs = []
+        coeffs.extend(ΔR.coeffs_copy())
+        coeffs.extend(Δv.coeffs_copy())
+        coeffs.extend(Δp.coeffs_copy())
+        coeffs.extend(Δab.coeffs_copy())
+        coeffs.extend(Δωb.coeffs_copy())
+        coeffs = np.array(coeffs).flatten()
         return StateTangent(coeffs)
 
     # Get & Set
