@@ -12,7 +12,7 @@ import measurement
 
 _IMU_RATE = 1000  # [Hz]
 _OPTITRACK_RATE = 100  # [Hz]
-_TIME = 120 # [s]
+_TIME = 50 # [s]
 
 # SET NOISE
 _IMU_NOISE = True
@@ -28,23 +28,23 @@ g = np.array([0, 0, -9.81])
 # Noise inside IMU commands. White and Random Walk
 Sigma_W_a_wn = 6.3e-5 #m/s²
 Sigma_W_ω_wn = 8.7e-5 #rad/s
-Sigma_W_a_rw = 0#4e-4   #m/s²
-Sigma_W_ω_rw = 0# 3.9e-5 #rad/s
+Sigma_W_a_rw = 4e-4   #m/s²
+Sigma_W_ω_rw = 3.9e-5 #rad/s
 
 w_sigmas = measurement.ImuNoise(Sigma_W_a_wn*np.ones(3), Sigma_W_ω_wn*np.ones(3), # a_wn, w_wn
                                 Sigma_W_a_rw*np.ones(3), Sigma_W_ω_rw *np.ones(3))   # a_rw, w_wr
 
 # Noise inside OptiTrack Measurments 
-v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.001*np.ones(SO3.DoF)), 0.001*np.ones(3)) # R_wn, p_wn
+v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.006*np.ones(SO3.DoF)), 0.0003*np.ones(3)) # R_wn, p_wn
 
 # Initialitzation of covariances first sigma (std. deviation), then sigma² (variance), and then the covariance matrix.
 
 # Sigmas of P
-Sigma_P_R = 1e-1; # Initial Value of std. deviation of the orientation.
-Sigma_P_v = 1e-1; # Initial Value of std. deviation of the lineal velocity.
-Sigma_P_p = 1e-1; # Initial Value of std. deviation of the position.
-Sigma_P_ab = 0#1e-4; # Initial Value of std. deviation of the lineal acceleration bias.
-Sigma_P_ωb = 0#1e-4; # Initial Value of std. deviation of the angular velocity bias.
+Sigma_P_R = 0 #1e-1; # Initial Value of std. deviation of the orientation.
+Sigma_P_v = 1e1; # Initial Value of std. deviation of the lineal velocity.
+Sigma_P_p = 1e1; # Initial Value of std. deviation of the position.
+Sigma_P_ab = 0 #1e-4; # Initial Value of std. deviation of the lineal acceleration bias.
+Sigma_P_ωb = 0 #1e-4; # Initial Value of std. deviation of the angular velocity bias.
 
 P_sigmas = np.array([Sigma_P_R, Sigma_P_R, Sigma_P_R, Sigma_P_v, Sigma_P_v, Sigma_P_v, Sigma_P_p, Sigma_P_p, Sigma_P_p, Sigma_P_ab, Sigma_P_ab, Sigma_P_ab, Sigma_P_ωb, Sigma_P_ωb, Sigma_P_ωb])
 
@@ -53,8 +53,8 @@ P_sigmas = np.array([Sigma_P_R, Sigma_P_R, Sigma_P_R, Sigma_P_v, Sigma_P_v, Sigm
 P0 = np.diagflat(np.square(P_sigmas))
 
 # Sigmas of Q
-Sigma_Q_a_wn = Sigma_W_a_wn
-Sigma_Q_ω_wn = Sigma_W_ω_wn
+Sigma_Q_a_wn = 0 #Sigma_W_a_wn
+Sigma_Q_ω_wn = 0 #Sigma_W_ω_wn
 
 Q_sigmas = np.array([Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn])
 
@@ -71,8 +71,8 @@ W_joan_sigmas = np.array([Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_ω_r
 W0 = np.diagflat(np.square(W_joan_sigmas))
 
 # Sigmas of V
-Sigma_V_R = 4e-3
-Sigma_V_ω = 1e-2
+Sigma_V_R = 6e-3
+Sigma_V_ω = 1e-4
 
 v_joan_sigmas = np.array([Sigma_V_R , Sigma_V_R , Sigma_V_R , Sigma_V_ω, Sigma_V_ω, Sigma_V_ω])
 
@@ -135,10 +135,10 @@ if __name__ == "__main__":
     t_ot = 0  # ot tracking time [s]
     t = 0  # global tracking [s]
 
-    X = state.State(SO3.Identity(), np.array([0, -1, 0]), np.zeros(3),
+    X = state.State(SO3.Identity(), np.array([0, 1, 0]), np.zeros(3),
                     np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
 
-    X0 = state.State(SO3.Identity(), np.array([0.1, -1.1, 0.1]), 0.01*np.ones(3),
+    X0 = state.State(SO3.Identity(), np.array([0, 0, 0]), 0.01*np.ones(3),
                     np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
 
 
@@ -151,8 +151,8 @@ if __name__ == "__main__":
             '''Imu data'''
             # True acc & angular velocity
             U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
-            U_t.a_m = np.array([-2, 3, 0]) #Expressing...
-            #U_t.a_m = np.array([np.cos(t_imu), np.sin(t_imu), 0]) #Expressing a circle around z axis by the accel.
+            #U_t.a_m = np.array([0, 0, 0]) #Expressing...
+            U_t.a_m = np.array([-4*np.cos(2*t_imu), -4*np.sin(2*t_imu), 0]) #Expressing a circle around z axis by the accel.
             U_t.ω_m = np.array([0, 0, 0]) #rotation around z.
             X, U = update(X, U_t, dt_imu)
             X_list.append(X) #storing real values of X
@@ -194,9 +194,16 @@ if __name__ == "__main__":
     '''Data process'''
 
 import get_x_n_y
-
+zip
 x_r, y_r = get_x_n_y.get_X_n_Y(X_list)
 x_est, y_est = get_x_n_y.get_X_n_Y(X_est_list)
+x_r_a = np.array(x_r)
+x_est_a = np.array(x_est)
+y_r_a = np.array(y_r)
+y_est_a = np.array(y_est)
+
+d_x = np.subtract(x_r_a,x_est_a)
+d_y = np.subtract(y_r_a,y_est_a)
 
 z_x = [ze_i.R_wn.coeffs()[0] for ze_i in Z_list]
 z_y = [ze_i.R_wn.coeffs()[1] for ze_i in Z_list]
@@ -261,3 +268,9 @@ plt.plot( t_ot ,h_x_pz, color='blue', label='h_z_p',ls = ":")
 
 plt.legend()
 plt.show()
+
+# plt.plot( t_imu ,d_x, color='red', label='Z_x_p',ls = ":")
+# plt.plot( t_imu ,d_y, color='green', label='Z_y_p',ls = ":")
+
+# plt.legend()
+# plt.show()
