@@ -2,304 +2,282 @@
 import numpy as np
 from manifpy import *
 
-from measurement import *
-from state import *
-
-_ZERO = np.zeros([3, 3])
-
+from input import Input, InputTangent
+from pertubation import Pertubation
+from output import Output, OutputTangent
+from state import State, StateTangent
+from manifpy import SO3Tangent, R3Tangent, R3
 
 class LEKF:
-    # Constructor
 
-    def __init__(self, X0, P0, Q, W, V) -> None:
+    # Constructor
+    def __init__(self, X0: State, P0, Q, W, V) -> None:
         self.X = X0  # [State]
         self.P = P0  # [Covariance]
-        self.Q = Q  # [Covariance]
-        self.W = W  # [Covariance]
-        self.V = V  # [Covariance]
+        self._Q = Q  # [Covariance]
+        self._W = W  # [Covariance]
+        self._V = V  # [Covariance]
 
-    # User function
+    # User functions
+    def predict(self, U: Input, dt: float) -> None:
+        '''Make a prediction of the state knowing the command applied on the system.
+        1. Compute the estimated state + the jacobians of the function.
+        2. Update the covariance matrix of the estimated state.
+        '''
 
-    def predict(self, U, dt):
+        # f() is define as a function with noise. Set the noise at 0.
+        # TODO[Hugo]: f() is only use for the prediction (where it is considere as 0).
+        #             Remove the noise W.
+        W = Pertubation.Identity()
 
-        # Initialize covariance matrix W whit all the noises, white and random walk, at 0.
-        # As the atributes are expected to be 3x3 array, the np.zero of dimension 3 is used.
-
-        W = ImuNoise()
-
-        # The prediction is based on the dynamics function with 0 noise.
-        # The obtained values are the estimated X and the jacobians of the dynamcs wrt its inputs.
         X_out, F_x, F_u, F_w = self.f(self.X, U, W, dt)
+        P_out = F_x @ self.P  @ F_x.transpose() \
+              + F_u @ self._Q @ F_u.transpose() \
+              + F_w @ self._W @ F_w.transpose()
 
-        # The prediction step also has to upload the value of the covariance matrix P (matrix of the state).
-        # We do this by taking in account all the inputs covariances and the jacobians mentioned before.
-        P_out = F_x @ self.P @ F_x.transpose() + F_u @ self.Q @ F_u.transpose() + \
-            F_w @ self.W @ F_w.transpose()
+        self.X = X_out
+        self.P = (P_out+P_out.T)/2 # Way to ensure symmetry of the matrix
 
-        self.X = X_out  # We upload the estimated state value.
-        # We upload the covariance matrix of the estimated value.
-        self.P = P_out
+    def correct(self, Y: Output) -> None:
+        '''Make a correction of the state knowing the current measurements.
+        1. Compute the innovation + the jacobians of the innovation.
+        2. Compute the covariance matrix of the innovation.
+        3. Compute the Kalman gain.
+        4. Update the estimated dtate and its covariance matrix.
+        '''
 
-    def correct(self, Y):
         z, J_z_x, J_z_v = self.z(Y)
 
-        Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self.V @ J_z_v.transpose()
+        Z = J_z_x @ self.P @ J_z_x.transpose() + J_z_v @ self._V @ J_z_v.transpose()
 
         K = - self.P @ J_z_x.transpose() @ np.linalg.inv(Z)
 
-        R_out = self.X.R + \
-            SO3Tangent(K[:3, :3]@z.R_wn.coeffs_copy() + K[:3, 3:]@z.p_wn)
-        v_out = self.X.v + K[3:6, :3]@z.R_wn.coeffs_copy() + K[3:6, 3:]@z.p_wn
-        p_out = self.X.p + K[6:9, :3]@z.R_wn.coeffs_copy() + K[6:9, 3:]@z.p_wn
-        ab_out = self.X.a_b + \
-            K[9:12, :3]@z.R_wn.coeffs_copy() + K[9:12, 3:]@z.p_wn
-        ωb_out = self.X.ω_b + \
-            K[12:, :3]@z.R_wn.coeffs_copy() + K[12:, 3:]@z.p_wn
-
-        X_out = State(R_out, v_out, p_out, ab_out, ωb_out)
-
+        X_out = self.X+StateTangent(z.__rmatmul__(K))
         P_out = self.P - K @ Z @ K.transpose()
 
         self.X = X_out
-        self.P = P_out
+        self.P = (P_out+P_out.T)/2 # Way to ensure symmetry of the matrix
 
     # Acceleration
+    def a(self, X: State, U: Input, W: Pertubation) -> any:
 
-    def a(self, X, U, W):
-        g = np.array([0, 0, -9.81])
-        # compute the true a
-        # remove bias and whiet noise from measurement
-        # equation
-        Δa = U.a_m-X.a_b-W.a_wn
-        # jacobian
-        J_Δa_am = np.identity(len(Δa))  # Jacobian of the difference wrt a_m
-        J_Δa_ab = -np.identity(len(Δa))  # Jacobian of the difference wrt a_b
-        J_Δa_awn = -np.identity(len(Δa))  # Jacobian of the difference wrt a_wn
-        # Change the frame of the IMU from wrt body to wrt world frame
-        # Defining the Jacobians for manif to compute.
-        J_RΔa_R = np.ndarray([X.R.DoF, X.R.DoF])
-        # Defining the Jacobians for manif to compute.
-        J_RΔa_Δa = np.ndarray([X.R.DoF, Δa.size])
+        _G = np.array([0, 0, -9.81])
 
-        # Computing the frame change
-        # a = R * ( Δa ) + g. The result is a 3d vector.
-        a = X.R.act(Δa, J_RΔa_R, J_RΔa_Δa) + g
+        R  = X.get_R()
+        ab = X.get_ab().coeffs_copy()
+        am = U.get_am().coeffs_copy()
+        aw = W.get_aw().coeffs_copy()
 
-        # jacobian
+        # Equation & jacobians of Δa 
+        Δa = am-ab-aw
+        J_Δa_am =  np.identity(len(Δa))  # Jacobian of Δa wrt am
+        J_Δa_ab = -np.identity(len(Δa))  # Jacobian of Δa wrt ab
+        J_Δa_aw = -np.identity(len(Δa))  # Jacobian of Δa wrt aw
 
-        # From the paper: J_R*v_R = ... = -R[v]x. In this case J_a_R = -R[ da ]x = -R*[a_m -a_b]x
-        J_a_R = J_RΔa_R
+        # Equation & jacobians of a 
+        J_a_R  = np.ndarray([len(Δa),   R.DoF]) # Jacobian of a wrt R
+        J_a_Δa = np.ndarray([len(Δa), len(Δa)]) # Jacobian of a wrt Δa
+        a = R.act(Δa, J_a_R, J_a_Δa) + _G
 
-        # J_a_am = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_am
-        J_a_am = J_RΔa_Δa @ J_Δa_am
+        J_a_am = J_a_Δa @ J_Δa_am # Jacobian of a wrt am
+        J_a_ab = J_a_Δa @ J_Δa_ab # Jacobian of a wrt ab
+        J_a_aw = J_a_Δa @ J_Δa_aw # Jacobian of a wrt aw
 
-        # J_a_ab = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_ab
-        J_a_ab = J_RΔa_Δa @ J_Δa_ab
-
-        # J_a_awn = J_R(am-ab-awn)+g_(am-ab-awn) @ J_(am-ab-awn)_awn
-        J_a_awn = J_RΔa_Δa @ J_Δa_awn
-
-        return a, J_a_R, J_a_am, J_a_ab, J_a_awn
-
+        return a, J_a_R, J_a_am, J_a_ab, J_a_aw
+    
     # Omega
+    def ω(self, X: State, U: Input, W: Pertubation) -> any:
 
-    def ω(self, X, U, W):
+        ωm = U.get_ωm().coeffs_copy()
+        ωb = X.get_ωb().coeffs_copy()
+        ωw = W.get_ωw().coeffs_copy()
 
-        # compute true value ω
-        # remove bias and whiet noise from measurement
-        # equation
-        # w = w_m - w_b defining wmeasured and wbias as a 3D vector.
-        ω = U.ω_m - X.ω_b - W.ω_wn
-        # jacobian
-        J_ω_ωm = np.identity(3)
-        J_ω_ωb = -np.identity(3)
-        J_ω_ωwn = -np.identity(3)
+        # Equation & jacobians of ω 
+        ω = ωm - ωb - ωw
+        J_ω_ωm =  np.identity(len(ω)) # Jacobian of ω wrt ωm
+        J_ω_ωb = -np.identity(len(ω)) # Jacobian of ω wrt ωb
+        J_ω_ωw = -np.identity(len(ω)) # Jacobian of ω wrt ωw
 
-        return ω, J_ω_ωm, J_ω_ωb, J_ω_ωwn
+        return ω, J_ω_ωm, J_ω_ωb, J_ω_ωw
 
     # Dynamics of system
+    def f(self, X: State, U: Input, W: Pertubation, dt: float) -> any:
 
-    def f(self, X, U, W, dt):
+        R  = X.get_R()
+        v  = X.get_v()
+        p  = X.get_p()
+        ab = X.get_ab()
+        ωb = X.get_ωb()
+        ar = W.get_ar()
+        ωr = W.get_ωr()
 
-        X_o = State(X.R, X.v, X.p, X.a_b, X.ω_b)
-        # compute real values of U
-        a, J_a_R, J_a_am, J_a_ab, _ = self.a(
-            X, U, W)  # real a and its jacobians
-        ω, J_ω_ωm, J_ω_ωb, _ = self.ω(X, U, W)  # real ω and its jacobians
-        # compute value
-        # equation
-        # Defining the Jacobians for manif to compute.
-        J_RExp_R = np.ndarray([SO3.DoF, X.R.DoF])
-        # Defining the Jacobians for manif to compute.
-        J_RExp_ωdt = np.ndarray([SO3.DoF, ω.size])
-        X_o.R = X.R.rplus(SO3Tangent(ω*dt), J_RExp_R,
-                          J_RExp_ωdt)  # R (+) w*dt = RExp(wdt)
-        # jacobian
-        # We computed the jacobian of the plus operation wrt to wdt, not w. So lets compute jacobian of wdt wrt w and then apply chain rule.
-        J_ωdt_ω = dt*np.identity(3)
-        J_RExp_ω = J_RExp_ωdt @ J_ωdt_ω  # Chain rule
-        J_R_ωm = J_RExp_ω @ J_ω_ωm  # Chain rule
-        # equation
-        X_o.v = X.v + a*dt  # v =  v + a*dt
-        # jacobian
-        J_v_v = np.identity(3)
-        J_v_a = dt*np.identity(3)
-        # equation
-        X_o.p = X.p + X.v*dt + 0.5*a*dt**2  # p =  p + v*dt + 0.5*a*dt²
-        # jacobian
-        J_p_p = np.identity(3)
-        J_p_v = dt*np.identity(3)
-        J_p_a = 0.5*np.identity(3)*dt**2
-        # equation
-        X_o.a_b = X.a_b + W.a_rw  # a_b =  a_b + a_r
-        # jacobian
-        J_ab_ab = np.identity(3)
-        J_ab_ar = np.identity(3)
-        # equation
-        X_o.ω_b = X.ω_b + W.ω_rw  # ω_b =  ω_b + ω_r
-        # jacobian
-        J_ωb_ωb = np.identity(3)
-        J_ωb_ωr = np.identity(3)
+        # get true acceleration and linear velocity with their jacobians
+        a, J_a_R, J_a_am, J_a_ab, J_a_aw = self.a(X, U, W)
+        ω, J_ω_ωm, J_ω_ωb, J_ω_ωw        = self.ω(X, U, W)
 
-        # Assemble big jacobians: J_f_x, J_f_u, J_f_r
+        # Equation & jacobians of Ro
+        J_Ro_R   = np.ndarray([SO3Tangent.DoF,  R.DoF]) # Jacobian of Ro wrt R
+        J_Ro_ωdt = np.ndarray([SO3Tangent.DoF, ω.size]) # Jacobian of Ro wrt ωdt
+        Ro = R.rplus(SO3Tangent(ω*dt), J_Ro_R,J_Ro_ωdt)
 
-        # Jacobians of R wrt state vars
-        J_R_ωb = J_RExp_ω @ J_ω_ωb
+        J_ωdt_ω = dt*np.identity(len(ω)) # Jacobian of ωdt wrt ω
+        J_Ro_ω  = J_Ro_ωdt @ J_ωdt_ω     # Jacobian of Ro wrt ω
+        J_Ro_ωm =   J_Ro_ω @ J_ω_ωm      # Jacobian of Ro wrt ωm
+        J_Ro_ωb =   J_Ro_ω @ J_ω_ωb      # Jacobian of Ro wrt ωb
+        J_Ro_ωw =   J_Ro_ω @ J_ω_ωw      # Jacobian of Ro wrt ωw
 
-        # Jacobians of v wrt state vars
+        # Equation & jacobians of vo
+        J_vo_v   = np.ndarray([R3Tangent.DoF,  R.DoF]) # Jacobian of vo wrt v
+        J_vo_adt = np.ndarray([R3Tangent.DoF, len(a)]) # Jacobian of vo wrt adt
+        vo = v.rplus(R3Tangent(a*dt), J_vo_v, J_vo_adt)
 
-        # J_v+adt_adt @ J_adt_a @ J_R(am-ab)+g_R = J_v+adt_a @ J_R(am-ab)+g_R
-        J_v_R = J_v_a @ J_a_R
+        J_adt_a = dt*np.identity(len(a)) # Jacobian of adt wrt a
+        J_vo_a  = J_vo_adt @ J_adt_a     # Jacobian of vo wrt a
+        J_vo_R  = J_vo_a @ J_a_R         # Jacobian of vo wrt R
+        J_vo_am = J_vo_a @ J_a_am        # Jacobian of vo wrt am
+        J_vo_ab = J_vo_a @ J_a_ab        # Jacobian of vo wrt ab
+        J_vo_aw = J_vo_a @ J_a_aw        # Jacobian of vo wrt aw
 
-        J_v_ab = J_v_a @ J_a_ab
+        # Equation & jacobians of po
+        J_po_p = np.identity(3)             # Jacobian of po wrt p
+        J_po_v = dt*np.identity(3)          # Jacobian of po wrt v
+        J_po_a = 0.5*np.identity(3)*(dt**2) # Jacobian of po wrt a
+        po = R3(p.coeffs() + v.coeffs()*dt + 0.5*a*(dt**2))
 
-        # Jacobians of p wrt state vars
-        J_p_R = J_p_a @ J_a_R
-        J_p_ab = J_p_a @ J_a_ab
+        J_po_R  = J_po_a @ J_a_R  # Jacobian of po wrt R
+        J_po_am = J_po_a @ J_a_am # Jacobian of po wrt am
+        J_po_ab = J_po_a @ J_a_ab # Jacobian of po wrt ab
+        J_po_aw = J_po_a @ J_a_aw # Jacobian of po wrt aw
 
-        # J_f_x = np.array([[J_RExp_R,  _ZERO,   _ZERO,     _ZERO,     J_R_ωb],
-        #                   [   J_v_R, J_v_v,    _ZERO,     J_v_ab,     _ZERO],
-        #                   [   J_p_R, J_p_v,    J_p_p,     J_p_ab,     _ZERO],
-        #                   [    _ZERO,  _ZERO,  _ZERO,     J_ab_ab,    _ZERO],
-        #                   [    _ZERO,  _ZERO,  _ZERO,     _ZERO,    J_ωb_ωb]])
+        # Equation & jacobians of abo
+        J_abo_ab = np.ndarray([R3Tangent.DoF, len(a)]) # Jacobian of abo wrt ab
+        J_abo_ar = np.ndarray([R3Tangent.DoF, len(a)]) # Jacobian of abo wrt ar
+        abo = ab.rplus(ar, J_abo_ab, J_abo_ar)
+
+        # Equation & jacobians of ωbo
+        J_ωbo_ωb = np.ndarray([R3Tangent.DoF, len(ω)]) # Jacobian of ωbo wrt ωb
+        J_ωbo_ωr = np.ndarray([R3Tangent.DoF, len(ω)]) # Jacobian of ωbo wrt ωr
+        ωbo = ωb.rplus(ωr, J_ωbo_ωb, J_ωbo_ωr)
+
+        # J_f_x = np.array([[J_Ro_R,  _ZERO,  _ZERO,    _ZERO,  J_Ro_ωb],
+        #                   [J_vo_R, J_vo_v,  _ZERO,  J_vo_ab,    _ZERO],
+        #                   [J_po_R, J_po_v, J_po_p,  J_po_ab,    _ZERO],
+        #                   [ _ZERO,  _ZERO,  _ZERO, J_abo_ab,    _ZERO],
+        #                   [ _ZERO,  _ZERO,  _ZERO,    _ZERO, J_ωbo_ωb]])
 
         J_f_x = np.zeros([15, 15])
-        J_f_x[0:3, 0:3] = J_RExp_R
-        J_f_x[0:3, 12:15] = J_R_ωb
-        J_f_x[3:6, 0:3] = J_v_R
-        J_f_x[3:6, 3:6] = J_v_v
-        J_f_x[3:6, 9:12] = J_v_ab
-        J_f_x[6:9, 0:3] = J_p_R
-        J_f_x[6:9, 3:6] = J_p_v
-        J_f_x[6:9, 6:9] = J_p_p
-        J_f_x[6:9, 9:12] = J_p_ab
-        J_f_x[9:12, 9:12] = J_ab_ab
-        J_f_x[12:15, 12:15] = J_ωb_ωb
+        J_f_x[0:3, 0:3]     = J_Ro_R
+        J_f_x[0:3, 12:15]   = J_Ro_ωb
+        J_f_x[3:6, 0:3]     = J_vo_R
+        J_f_x[3:6, 3:6]     = J_vo_v
+        J_f_x[3:6, 9:12]    = J_vo_ab
+        J_f_x[6:9, 0:3]     = J_po_R
+        J_f_x[6:9, 3:6]     = J_po_v
+        J_f_x[6:9, 6:9]     = J_po_p
+        J_f_x[6:9, 9:12]    = J_po_ab
+        J_f_x[9:12, 9:12]   = J_abo_ab
+        J_f_x[12:15, 12:15] = J_ωbo_ωb
 
-        # Jacobians of v wrt IMU measurments
-        J_v_am = J_v_a @ J_a_am
-
-        # Jacobians of p wrt IMU measurments
-        J_p_am = J_p_a @ J_a_am
-
-        # J_f_u = np.array([[_ZERO,  J_R_ωm],
-        #                   [J_v_am,   _ZERO],
-        #                   [J_p_am,   _ZERO],
-        #                   [_ZERO,   _ZERO],
-        #                   [_ZERO,   _ZERO]])
+        # J_f_u = np.array([[  _ZERO, J_Ro_ωm],
+        #                   [J_vo_am,   _ZERO],
+        #                   [J_po_am,   _ZERO],
+        #                   [  _ZERO,   _ZERO],
+        #                   [  _ZERO,   _ZERO]])
 
         J_f_u = np.zeros([15, 6])
-        J_f_u[0:3, 3:6] = J_R_ωm
-        J_f_u[3:6, 0:3] = J_v_am
-        J_f_u[6:9, 0:3] = J_p_am
+        J_f_u[0:3, 3:6] = J_Ro_ωm
+        J_f_u[3:6, 0:3] = J_vo_am
+        J_f_u[6:9, 0:3] = J_po_am
 
-        # J_f_w = np.array([[_ZERO,    _ZERO],
-        #                  [_ZERO,    _ZERO],
-        #                  [_ZERO,    _ZERO],
-        #                  [J_ab_ar,    _ZERO],
-        #                  [_ZERO,  J_ωb_ωr]])
+        # J_f_w = [[   _ZERO, J_Ro_ωwn,     _ZERO,     _ZERO],
+        #          [J_vo_awn,    _ZERO,     _ZERO,     _ZERO],
+        #          [J_po_awn,    _ZERO,     _ZERO,     _ZERO],
+        #          [   _ZERO,    _ZERO, J_abo_arw,     _ZERO],
+        #          [   _ZERO,    _ZERO,     _ZERO, J_ωbo_ωrw]]
 
-        J_f_w = np.zeros([15, 6])
-        J_f_w[9:12, 0:3] = J_ab_ar
-        J_f_w[12:15, 3:6] = J_ωb_ωr
+        J_f_w = np.zeros([15, 12])
+        J_f_w[0:3, 3:6]    = J_Ro_ωw
+        J_f_w[3:6, 0:3]    = J_vo_aw
+        J_f_w[6:9, 0:3]    = J_po_aw
+        J_f_w[9:12, 6:9]   = J_abo_ar
+        J_f_w[12:15, 9:12] = J_ωbo_ωr
 
-        return X_o, J_f_x, J_f_u, J_f_w
+        Xo = State.Bundle(Ro,vo, po, abo, ωbo)
+
+        return Xo, J_f_x, J_f_u, J_f_w
 
     # Expectation
+    def h(self, X: State, V: OutputTangent) -> any:
 
-    def h(self, X, V):
-        # compute value
-        # equation
-        # Defining the Jacobians for manif to compute.
-        J_Re_R = np.ndarray([SO3.DoF, SO3.DoF])
-        # Defining the Jacobians for manif to compute.
-        J_Re_Rwn = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF])
-        # R_e = R (+) R_wn
-        R_e = X.R.rplus(V.R_wn, J_Re_R, J_Re_Rwn)
+        R  = X.get_R()
+        p  = X.get_p()
+        Rw = V.get_ΔRm()
+        pw = V.get_Δpm()
 
-        # equation
-        p_e = X.p + V.p_wn
-        # jacobian
-        J_pe_p = np.identity(3)
-        J_pe_pwn = np.identity(3)
+        # Equation & jacobians of Re
+        J_Re_R  = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF]) # Jacobian of Re wrt R
+        J_Re_Rw = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF]) # Jacobian of Re wrt Rw
+        Re = R.rplus(Rw, J_Re_R, J_Re_Rw)
 
-        Y_e = OptitrackMeasurement(R_e, p_e)
+        # Equation & jacobians of pe
+        J_pe_p  = np.ndarray([R3Tangent.DoF, R3Tangent.DoF]) # Jacobian of pe wrt p
+        J_pe_pw = np.ndarray([R3Tangent.DoF, R3Tangent.DoF]) # Jacobian of pe wrt pw
+        pe = p.rplus(pw, J_pe_p, J_pe_pw)
 
-        # J_h_x = np.array([[J_Re_R, _ZERO, _ZERO, _ZERO, _ZERO],
-        #                   [_ZERO, _ZERO, J_pe_p, _ZERO, _ZERO]])
+        # J_h_x = np.array([[J_Re_R, _ZERO,  _ZERO, _ZERO, _ZERO],
+        #                   [ _ZERO, _ZERO, J_pe_p, _ZERO, _ZERO]])
 
         J_h_x = np.zeros([6, 15])
-
         J_h_x[0:3, 0:3] = J_Re_R
         J_h_x[3:6, 6:9] = J_pe_p
 
-        # J_h_v = np.array([[J_Re_Rwn, _ZERO],
-        #                  [_ZERO, J_pe_pwn]])
+        # J_h_v = np.array([[J_Re_Rw,   _ZERO],
+        #                   [  _ZERO, J_pe_pw]])
 
         J_h_v = np.zeros([6, 6])
+        J_h_v[0:3, 0:3] = J_Re_Rw
+        J_h_v[3:6, 3:6] = J_pe_pw
 
-        J_h_v[0:3, 0:3] = J_Re_Rwn
-        J_h_v[3:6, 3:6] = J_pe_pwn
+        Ye = Output.Bundle(Re, pe)
 
-        return Y_e, J_h_x, J_h_v
+        return Ye, J_h_x, J_h_v
 
     # Correction
+    def z(self, Y: Output) -> any:
 
-    def z(self, Y):
-        V = OptitrackNoise()
-        Y_e, H_x, H_v = self.h(self.X, V)
+        Rm = Y.get_Rm()
+        pm = Y.get_pm()
 
-        # Defining the Jacobians for manif to compute.
-        J_Rz_Rm = np.ndarray([SO3.DoF, SO3.DoF])
-        # Defining the Jacobians for manif to compute.
-        J_Rz_Re = np.ndarray([SO3.DoF, SO3.DoF])
+        V = OutputTangent.Identity()
+        e, H_x, H_v = self.h(self.X, V)
 
-        # R_z = Y.R (-) Ye.R_m
-        R_z = Y.R_m.rminus(Y_e.R_m, J_Rz_Rm, J_Rz_Re)
+        Re = e.get_Rm()
+        pe = e.get_pm()
 
-        J_Re_R = H_x[0:3, 0:3]
-        J_Rz_R = J_Rz_Re @ J_Re_R
+        # Equation & jacobians of Rz
+        J_Rz_Rm = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF]) # Jacobian of Rz wrt Rm
+        J_Rz_Re = np.ndarray([SO3Tangent.DoF, SO3Tangent.DoF]) # Jacobian of Rz wrt Re
+        Rz = Rm.rminus(Re, J_Rz_Rm, J_Rz_Re)
 
-        J_Re_Rwn = H_v[0:3, 0:3]
-        J_Rz_Rwn = J_Rz_Re @ J_Re_Rwn
+        J_Re_R  = H_x[0:3, 0:3]     # Jacobian of Re wrt R
+        J_Rz_R  = J_Rz_Re @ J_Re_R  # Jacobian of Rz wrt R
+        J_Re_Rw = H_v[0:3, 0:3]     # Jacobian of Re wrt Rw
+        J_Rz_Rw = J_Rz_Re @ J_Re_Rw # Jacobian of Rz wrt Rw
 
-        # Z.p = Y.p_m - R_wn
-        p_z = Y.p_m - Y_e.p_m
-        J_pz_pe = -np.identity(3)
+        # Equation & jacobians of pz
+        J_pz_pm = np.ndarray([R3Tangent.DoF, R3Tangent.DoF]) # Jacobian of pz wrt pm
+        J_pz_pe = np.ndarray([R3Tangent.DoF, R3Tangent.DoF]) # Jacobian of pz wrt pe
+        pz = pm.rminus(pe, J_pz_pm, J_pz_pe)
 
-        J_pe_p = H_x[3:6, 6:9]
-        J_pz_p = J_pz_pe @ J_pe_p
-
-        J_pe_pwn = H_v[3:6, 3:6]
-        J_pz_pwn = J_pz_pe @ J_pe_pwn
-
-        z = OptitrackNoise(R_z, p_z)
+        J_pe_p  = H_x[3:6, 6:9]     # Jacobian of pe wrt p
+        J_pz_p  = J_pz_pe @ J_pe_p  # Jacobian of pz wrt p
+        J_pe_pw = H_v[3:6, 3:6]     # Jacobian of pe wrt pw
+        J_pz_pw = J_pz_pe @ J_pe_pw # Jacobian of pz wrt pw
 
         # J_z_x = np.array([[J_Rz_R, _ZERO,  _ZERO, _ZERO, _ZERO],
         #                   [ _ZERO, _ZERO, J_pz_p, _ZERO, _ZERO]])
 
         J_z_x = np.zeros([6, 15])
-
         J_z_x[0:3, 0:3] = J_Rz_R
         J_z_x[3:6, 6:9] = J_pz_p
 
@@ -307,11 +285,9 @@ class LEKF:
         #                   [   _ZERO, J_pz_pwn]])
 
         J_z_v = np.zeros([6, 6])
+        J_z_v[0:3, 0:3] = J_Rz_Rw
+        J_z_v[3:6, 3:6] = J_pz_pw
 
-        J_z_v[0:3, 0:3] = J_Rz_Rwn
-        J_z_v[3:6, 3:6] = J_pz_pwn
+        z = OutputTangent.Bundle(Rz, pz)
 
         return z, J_z_x, J_z_v
-
-
-# Observation system
