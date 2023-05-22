@@ -26,8 +26,10 @@ g = np.array([0, 0, -9.81])
 
 # Sigmas for the simulated noise
 # Noise inside IMU commands. White and Random Walk
+
 Sigma_W_a_wn = 6.3e-5 #m/s²
 Sigma_W_ω_wn = 8.7e-5 #rad/s
+
 Sigma_W_a_rw = 4e-4   #m/s²
 Sigma_W_ω_rw = 3.9e-5 #rad/s
 
@@ -98,7 +100,7 @@ def update(X, U_t, dt):
         Un.ω_rw = np.random.normal(0,w_sigmas.ω_rw,3)
         
     # Command U
-    U.a_m = X.R.inverse().act(U_t.a_m-g)+X.a_b+Un.a_wn
+    U.a_m = X.R.inverse().act(U_t.a_m-g)+ X.a_b + Un.a_wn
     U.ω_m = U_t.ω_m + X.ω_b + Un.ω_wn
     # New state X
     X_o.R = X.R.rplus(SO3Tangent(U_t.ω_m*dt))
@@ -152,8 +154,8 @@ if __name__ == "__main__":
             '''Imu data'''
             # True acc & angular velocity
             U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
-            U_t.a_m = np.array([0, 0, 0]) #Expressing...
-            #U_t.a_m = np.array([-4*np.cos(2*t_imu), -4*np.sin(2*t_imu), 0]) #Expressing a circle around z axis by the accel.
+            #U_t.a_m = np.array([0, 0, 0]) #Expressing...
+            U_t.a_m = np.array([-4*np.cos(2*t_imu), -4*np.sin(2*t_imu), 0]) #Expressing a circle around z axis by the accel.
             U_t.ω_m = np.array([0, 0, 0]) #rotation around z.
             X, U = update(X, U_t, dt_imu)
             X_list.append(X) #storing real values of X
@@ -265,17 +267,17 @@ plt.plot( t_ot ,z_x_pz, color='blue', label='Z_z_p',ls = ":")
 plt.legend()
 plt.show()
 
-# Plotting (h), variables: h.R (x,y,z) and h.p(x,y,z)
-plt.plot( t_ot, h_x, color='red', label='h_R_x', ls = "-")
-plt.plot( t_ot ,h_y, color='green', label='h_R_y',ls = "-")
-plt.plot( t_ot ,h_z, color='blue', label='h_R_z',ls = "-")
+# # Plotting (h), variables: h.R (x,y,z) and h.p(x,y,z)
+# plt.plot( t_ot, h_x, color='red', label='h_R_x', ls = "-")
+# plt.plot( t_ot ,h_y, color='green', label='h_R_y',ls = "-")
+# plt.plot( t_ot ,h_z, color='blue', label='h_R_z',ls = "-")
 
-plt.plot( t_ot ,h_x_px, color='red', label='h_x_p',ls = ":")
-plt.plot( t_ot ,h_x_py, color='green', label='h_y_p',ls = ":")
-plt.plot( t_ot ,h_x_pz, color='blue', label='h_z_p',ls = ":")
+# plt.plot( t_ot ,h_x_px, color='red', label='h_x_p',ls = ":")
+# plt.plot( t_ot ,h_x_py, color='green', label='h_y_p',ls = ":")
+# plt.plot( t_ot ,h_x_pz, color='blue', label='h_z_p',ls = ":")
 
-plt.legend()
-plt.show()
+# plt.legend()
+# plt.show()
 
 # plt.plot( t_imu ,d_x, color='red', label='Z_x_p',ls = ":")
 # plt.plot( t_imu ,d_y, color='green', label='Z_y_p',ls = ":")

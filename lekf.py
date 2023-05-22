@@ -10,7 +10,6 @@ _ZERO = np.zeros([3, 3])
 
 class LEKF:
     # Constructor
-
     def __init__(self, x0, P0, Q, W, V) -> None:
         self.x = x0  # [State]
         self.P = P0  # [Covariance]
@@ -19,7 +18,6 @@ class LEKF:
         self.V = V  # [Covariance]
 
     # User function
-
     def predict(self, u, dt):
 
         # Initialize noise vector w with all the noises, White and random Walk, at 0.
@@ -113,7 +111,6 @@ class LEKF:
         return a, J_a_R, J_a_am, J_a_ab, J_a_aWn
 
     # Omega
-
     def ω(self, x, u):
 
         # compute true value ω
@@ -132,7 +129,6 @@ class LEKF:
         return ω, J_ω_ωm, J_ω_ωb, J_ω_ωWn
 
     # Dynamics of system
-
     def f(self, x, u, w, dt):
 
         # input and output states
@@ -161,19 +157,19 @@ class LEKF:
         J_Ro_ω = J_Ro_ωdt @ J_ωdt_ω 
         #J_Ro_ω = J_Ro_ωdt @ J_Expωdt_ωdt @ J_ωdt_ω  # Chain rule
         
-        J_R_ωm = J_Ro_ω @ J_ω_ωm  # Chain rule
+        J_Ro_ωm = J_Ro_ω @ J_ω_ωm  # Chain rule
 
         # equation
         X_o.v = X_i.v + a*dt  # v =  v + a*dt
         # jacobian
-        J_v_v = np.identity(3)
-        J_v_a = dt*np.identity(3)
+        J_vo_v = np.identity(3)
+        J_vo_a = dt*np.identity(3)
         # equation
         X_o.p = X_i.p + X_i.v*dt + 0.5*a*dt**2  # p =  p + v*dt + 0.5*a*dt²
         # jacobian
-        J_p_p = np.identity(3)
-        J_p_v = dt*np.identity(3)
-        J_p_a = 0.5*np.identity(3)*dt**2 + J_v_a*dt # J_p_a = J_
+        J_po_p = np.identity(3)
+        J_po_v = dt*np.identity(3)
+        J_po_a = 0.5*np.identity(3)*dt**2 #+ J_vo_a*dt # J_p_a = J_
         # equation
         X_o.a_b = X_i.a_b + w.a_rw  # a_b =  a_b + a_r
         # jacobian
@@ -188,18 +184,18 @@ class LEKF:
         # Assemble big jacobians: J_f_x, J_f_u, J_f_r
 
         # Jacobians of R Wrt state vars
-        J_R_ωb = J_Ro_ω @ J_ω_ωb
+        J_Ro_ωb = J_Ro_ω @ J_ω_ωb
 
         # Jacobians of v Wrt state vars
 
         # J_v+adt_adt @ J_adt_a @ J_R(am-ab)+g_R = J_v+adt_a @ J_R(am-ab)+g_R
-        J_v_R = J_v_a @ J_a_R
+        J_vo_R = J_vo_a @ J_a_R
 
-        J_v_ab = J_v_a @ J_a_ab
+        J_vo_ab = J_vo_a @ J_a_ab
 
         # Jacobians of p Wrt state vars
-        J_p_R = J_p_a @ J_a_R
-        J_p_ab = J_p_a @ J_a_ab
+        J_po_R = J_po_a @ J_a_R
+        J_po_ab = J_po_a @ J_a_ab
 
         # J_f_x = np.array([[J_Ro_R,  _ZERO,   _ZERO,     _ZERO,     J_R_ωb],
         #                   [   J_v_R, J_v_v,    _ZERO,     J_v_ab,     _ZERO],
@@ -209,22 +205,22 @@ class LEKF:
 
         J_f_x = np.zeros([15, 15])
         J_f_x[0:3, 0:3] = J_Ro_R
-        J_f_x[0:3, 12:15] = J_R_ωb
-        J_f_x[3:6, 0:3] = J_v_R
-        J_f_x[3:6, 3:6] = J_v_v
-        J_f_x[3:6, 9:12] = J_v_ab
-        J_f_x[6:9, 0:3] = J_p_R
-        J_f_x[6:9, 3:6] = J_p_v
-        J_f_x[6:9, 6:9] = J_p_p
-        J_f_x[6:9, 9:12] = J_p_ab
+        J_f_x[0:3, 12:15] = J_Ro_ωb
+        J_f_x[3:6, 0:3] = J_vo_R
+        J_f_x[3:6, 3:6] = J_vo_v
+        J_f_x[3:6, 9:12] = J_vo_ab
+        J_f_x[6:9, 0:3] = J_po_R
+        J_f_x[6:9, 3:6] = J_po_v
+        J_f_x[6:9, 6:9] = J_po_p
+        J_f_x[6:9, 9:12] = J_po_ab
         J_f_x[9:12, 9:12] = J_ab_ab
         J_f_x[12:15, 12:15] = J_ωb_ωb
 
         # Jacobians of v Wrt IMU measurments
-        J_v_am = J_v_a @ J_a_am
+        J_v_am = J_vo_a @ J_a_am
 
         # Jacobians of p Wrt IMU measurments
-        J_p_am = J_p_a @ J_a_am
+        J_p_am = J_po_a @ J_a_am
 
         # J_f_u = np.array([[_ZERO,  J_R_ωm],
         #                   [J_v_am,   _ZERO],
@@ -233,7 +229,7 @@ class LEKF:
         #                   [_ZERO,   _ZERO]])
 
         J_f_u = np.zeros([15, 6])
-        J_f_u[0:3, 3:6] = J_R_ωm
+        J_f_u[0:3, 3:6] = J_Ro_ωm
         J_f_u[3:6, 0:3] = J_v_am
         J_f_u[6:9, 0:3] = J_p_am
 
@@ -250,7 +246,6 @@ class LEKF:
         return X_o, J_f_x, J_f_u, J_f_W
 
     # Expectation
-
     def expectation(self, x):
 
         # orientation
@@ -273,7 +268,6 @@ class LEKF:
         return e, J_e_x
 
     # Correction
-
     def innovation(self, y):
         v = OptitrackNoise()
 
