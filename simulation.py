@@ -17,6 +17,7 @@ _TIME = 50 # [s]
 # SET NOISE
 _IMU_NOISE = True
 _OPTITRACK_NOISE = True
+_BIAS = True
 
 # SET CORRECTION
 _CORRECTION = True
@@ -27,14 +28,17 @@ g = np.array([0, 0, -9.81])
 # Sigmas for the simulated noise
 # Noise inside IMU commands. White and Random Walk
 
-Sigma_W_a_wn = 6.3e-5 #m/s²
-Sigma_W_ω_wn = 8.7e-5 #rad/s
+Sigma_U_a_wn = 6.3e-5 #m/s²
+Sigma_U_ω_wn = 8.7e-5 #rad/s
 
 Sigma_W_a_rw = 4e-4   #m/s²
 Sigma_W_ω_rw = 3.9e-5 #rad/s
 
-w_sigmas = measurement.ImuNoise(Sigma_W_a_wn*np.ones(3), Sigma_W_ω_wn*np.ones(3),    # a_wn, w_wn
-                                Sigma_W_a_rw*np.ones(3), Sigma_W_ω_rw *np.ones(3))   # a_rw, w_wr
+u_sigmas = measurement.ImuNoise(Sigma_U_a_wn*np.ones(3), Sigma_U_ω_wn*np.ones(3))    # a_wn, w_wn
+                                # Sigma_W_a_rw*np.ones(3), Sigma_W_ω_rw *np.ones(3))   # a_rw, w_wr
+print(u_sigmas)
+
+w_sigmas = measurement.ImuBiasRandomWalk(Sigma_W_a_rw*np.ones(3),Sigma_W_ω_rw*np.ones(3))
 
 # Noise inside OptiTrack Measurments 
 v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.006*np.ones(SO3.DoF)), 0.0003*np.ones(3)) # R_wn, p_wn
@@ -55,8 +59,8 @@ P_sigmas = np.array([Sigma_P_R, Sigma_P_R, Sigma_P_R, Sigma_P_v, Sigma_P_v, Sigm
 P0 = np.diagflat(np.square(P_sigmas))
 
 # Sigmas of Q
-Sigma_Q_a_wn = Sigma_W_a_wn #Sigma_W_a_wn
-Sigma_Q_ω_wn = Sigma_W_ω_wn #Sigma_W_ω_wn
+Sigma_Q_a_wn = Sigma_U_a_wn #Sigma_W_a_wn
+Sigma_Q_ω_wn = Sigma_U_ω_wn #Sigma_W_ω_wn
 
 Q_sigmas = np.array([Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn])
 
@@ -88,17 +92,14 @@ V0 = np.diagflat(np.square(v_joan_sigmas))
 def update(X, U_t, dt):
     U = measurement.ImuMeasurement()
     Un = measurement.ImuNoise()
+    W = measurement.ImuBiasRandomWalk()
     X_o = state.State()
     if _IMU_NOISE:
-        # Un.a_wn = w_sigmas.a_wn*np.random.uniform(-1,1,3) # random value between -1 and 1 for each var.
-        # Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
-        # Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
-        # Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
-        Un.a_wn = np.random.normal(0,w_sigmas.a_wn,3)
-        Un.ω_wn = np.random.normal(0,w_sigmas.ω_wn,3)
-        Un.a_rw = np.random.normal(0,w_sigmas.a_rw,3)
-        Un.ω_rw = np.random.normal(0,w_sigmas.ω_rw,3)
-        
+        Un.a_wn = np.random.normal(0,u_sigmas.a_wn,3)
+        Un.ω_wn = np.random.normal(0,u_sigmas.ω_wn,3)
+        if _BIAS:
+            W.a_rw = np.random.normal(0,w_sigmas.a_rw,3)
+            W.ω_rw = np.random.normal(0,w_sigmas.ω_rw,3)
     # Command U
     U.a_m = X.R.inverse().act(U_t.a_m-g)+ X.a_b + Un.a_wn
     U.ω_m = U_t.ω_m + X.ω_b + Un.ω_wn
@@ -106,8 +107,8 @@ def update(X, U_t, dt):
     X_o.R = X.R.rplus(SO3Tangent(U_t.ω_m*dt))
     X_o.v = X.v + U_t.a_m*dt
     X_o.p = X.p + X.v*dt + U_t.a_m*((dt**2)/2)
-    X_o.a_b = X.a_b + Un.a_rw
-    X_o.ω_b = X.ω_b + Un.ω_rw
+    X_o.a_b = X.a_b + W.a_rw
+    X_o.ω_b = X.ω_b + W.ω_rw
     return X_o, U
 
 def observe(X):
