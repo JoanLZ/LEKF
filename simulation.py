@@ -31,7 +31,7 @@ Sigma_W_ω_wn = 8.7e-5 #rad/s
 Sigma_W_a_rw = 4e-4   #m/s²
 Sigma_W_ω_rw = 3.9e-5 #rad/s
 
-w_sigmas = measurement.ImuNoise(Sigma_W_a_wn*np.ones(3), Sigma_W_ω_wn*np.ones(3), # a_wn, w_wn
+w_sigmas = measurement.ImuNoise(Sigma_W_a_wn*np.ones(3), Sigma_W_ω_wn*np.ones(3),    # a_wn, w_wn
                                 Sigma_W_a_rw*np.ones(3), Sigma_W_ω_rw *np.ones(3))   # a_rw, w_wr
 
 # Noise inside OptiTrack Measurments 
@@ -40,7 +40,7 @@ v_sigmas = measurement.OptitrackNoise(SO3Tangent(0.006*np.ones(SO3.DoF)), 0.0003
 # Initialitzation of covariances first sigma (std. deviation), then sigma² (variance), and then the covariance matrix.
 
 # Sigmas of P
-Sigma_P_R = 0 #1e-1; # Initial Value of std. deviation of the orientation.
+Sigma_P_R = 1e1 #1e-1; # Initial Value of std. deviation of the orientation.
 Sigma_P_v = 1e1; # Initial Value of std. deviation of the lineal velocity.
 Sigma_P_p = 1e1; # Initial Value of std. deviation of the position.
 Sigma_P_ab = 0 #1e-4; # Initial Value of std. deviation of the lineal acceleration bias.
@@ -53,8 +53,8 @@ P_sigmas = np.array([Sigma_P_R, Sigma_P_R, Sigma_P_R, Sigma_P_v, Sigma_P_v, Sigm
 P0 = np.diagflat(np.square(P_sigmas))
 
 # Sigmas of Q
-Sigma_Q_a_wn = 0 #Sigma_W_a_wn
-Sigma_Q_ω_wn = 0 #Sigma_W_ω_wn
+Sigma_Q_a_wn = Sigma_W_a_wn #Sigma_W_a_wn
+Sigma_Q_ω_wn = Sigma_W_ω_wn #Sigma_W_ω_wn
 
 Q_sigmas = np.array([Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_a_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn, Sigma_Q_ω_wn])
 
@@ -65,6 +65,7 @@ Q0 = np.diagflat(np.square(Q_sigmas))
 # Sigmas of W
 
 W_joan_sigmas = np.array([Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_a_rw, Sigma_W_ω_rw, Sigma_W_ω_rw, Sigma_W_ω_rw])
+#W_joan_sigmas = np.array([0,0,0,0,0,0])
 
 # Covariance matrix W
 
@@ -91,10 +92,11 @@ def update(X, U_t, dt):
         # Un.ω_wn = w_sigmas.ω_wn*np.random.uniform(-1,1,3)
         # Un.a_rw = w_sigmas.a_rw*np.random.uniform(-1,1,3)
         # Un.ω_rw = w_sigmas.ω_rw*np.random.uniform(-1,1,3)
-        Un.a_wn = np.random.uniform(0,w_sigmas.a_wn,3) 
-        Un.ω_wn = np.random.uniform(0,w_sigmas.ω_wn,3)
-        Un.a_rw = np.random.uniform(0,w_sigmas.a_rw,3)
-        Un.ω_rw = np.random.uniform(0,w_sigmas.ω_rw,3)
+        Un.a_wn = np.random.normal(0,w_sigmas.a_wn,3)
+        Un.ω_wn = np.random.normal(0,w_sigmas.ω_wn,3)
+        Un.a_rw = np.random.normal(0,w_sigmas.a_rw,3)
+        Un.ω_rw = np.random.normal(0,w_sigmas.ω_rw,3)
+        
     # Command U
     U.a_m = X.R.inverse().act(U_t.a_m-g)+X.a_b+Un.a_wn
     U.ω_m = U_t.ω_m + X.ω_b + Un.ω_wn
@@ -106,15 +108,14 @@ def update(X, U_t, dt):
     X_o.ω_b = X.ω_b + Un.ω_rw
     return X_o, U
 
-
 def observe(X):
     Y = measurement.OptitrackMeasurement()
     Yn = measurement.OptitrackNoise()
     if _OPTITRACK_NOISE:
-        Yn.R_wn = SO3Tangent(np.random.uniform(0,v_sigmas.R_wn.coeffs_copy(),3)) 
-        Yn.p_wn = np.random.uniform(0,v_sigmas.p_wn,3)
-    Y.R_m = X.R+Yn.R_wn # ?
-    Y.p_m = X.p+Yn.p_wn # ?
+        Yn.R = SO3Tangent(np.random.normal(0,v_sigmas.R.coeffs_copy(),3)) 
+        Yn.p = np.random.normal(0,v_sigmas.p,3)
+    Y.R = X.R + Yn.R 
+    Y.p = X.p + Yn.p 
     return Y
 
 X_list = [] # List to stock simulated states
@@ -135,7 +136,7 @@ if __name__ == "__main__":
     t_ot = 0  # ot tracking time [s]
     t = 0  # global tracking [s]
 
-    X = state.State(SO3.Identity(), np.array([0, 1, 0]), np.zeros(3),
+    X = state.State(SO3.Identity(), np.array([1, 1, 0]), np.zeros(3),
                     np.zeros(3), np.zeros(3)) #inicial state. We define the velocity on vy beacuse the circle we want to simulate.
 
     X0 = state.State(SO3.Identity(), np.array([0, 0, 0]), 0.01*np.ones(3),
@@ -151,14 +152,14 @@ if __name__ == "__main__":
             '''Imu data'''
             # True acc & angular velocity
             U_t = measurement.ImuMeasurement() # Inicialitzating of U(t) = [0(3x3), 0(3x3)]
-            #U_t.a_m = np.array([0, 0, 0]) #Expressing...
-            U_t.a_m = np.array([-4*np.cos(2*t_imu), -4*np.sin(2*t_imu), 0]) #Expressing a circle around z axis by the accel.
+            U_t.a_m = np.array([0, 0, 0]) #Expressing...
+            #U_t.a_m = np.array([-4*np.cos(2*t_imu), -4*np.sin(2*t_imu), 0]) #Expressing a circle around z axis by the accel.
             U_t.ω_m = np.array([0, 0, 0]) #rotation around z.
             X, U = update(X, U_t, dt_imu)
             X_list.append(X) #storing real values of X
             U_list.append(U) #storing real values of u (IMU)
             lekf.predict(U, dt_imu)
-            X_est_list.append(lekf.X) #sotring estimated values of X
+            X_est_list.append(lekf.x) #sotring estimated values of X
             P_est_list.append(lekf.P) #sotring estimated values of P
 
             t_imu = t_imu + dt_imu
@@ -173,18 +174,16 @@ if __name__ == "__main__":
             
             V = measurement.OptitrackNoise()
 
-            h, _, _ = lekf.h(lekf.X, V)
+            # e, _, _ = lekf.expectation(lekf.x)
             
-            H_list.append(h)
+            # H_list.append(h)
 
-            z, _, _ = lekf.z(Y)
+            z, _, _ = lekf.innovation(Y)
 
             Z_list.append(z)
 
             if _CORRECTION:
                 lekf.correct(Y)
-
-            
             #X_est_list.append(lekf.X
             # )
         
@@ -202,22 +201,27 @@ x_est_a = np.array(x_est)
 y_r_a = np.array(y_r)
 y_est_a = np.array(y_est)
 
+x_R = get_x_n_y.get_R(X_list)
+x_R_est = get_x_n_y.get_R(X_est_list)
+d_x_R = [x_i- x_j for x_i,x_j in list(zip(x_R,x_R_est) )]
+d_X_R_n = [np.linalg.norm(x_i) for x_i in d_x_R]
+
 d_x = np.subtract(x_r_a,x_est_a)
 d_y = np.subtract(y_r_a,y_est_a)
 
-z_x = [ze_i.R_wn.coeffs()[0] for ze_i in Z_list]
-z_y = [ze_i.R_wn.coeffs()[1] for ze_i in Z_list]
-z_z = [ze_i.R_wn.coeffs()[2] for ze_i in Z_list]
-z_x_px = [ze_i.p_wn[0] for ze_i in Z_list]
-z_x_py = [ze_i.p_wn[1] for ze_i in Z_list]
-z_x_pz = [ze_i.p_wn[2] for ze_i in Z_list]
+z_R_x =  [ze_i[0] for ze_i in Z_list]
+z_R_y =  [ze_i[1] for ze_i in Z_list]
+z_R_z =  [ze_i[2] for ze_i in Z_list]
+z_x_px = [ze_i[3] for ze_i in Z_list]
+z_x_py = [ze_i[4] for ze_i in Z_list]
+z_x_pz = [ze_i[5] for ze_i in Z_list]
 
-h_x = [he_i.R_m.coeffs()[0] for he_i in H_list]
-h_y = [he_i.R_m.coeffs()[1] for he_i in H_list]
-h_z = [he_i.R_m.coeffs()[2] for he_i in H_list]
-h_x_px = [he_i.p_m[0] for he_i in H_list]
-h_x_py = [he_i.p_m[1] for he_i in H_list]
-h_x_pz = [he_i.p_m[2] for he_i in H_list]
+# h_x = [he_i.R_m.coeffs()[0] for he_i in H_list]
+# h_y = [he_i.R_m.coeffs()[1] for he_i in H_list]
+# h_z = [he_i.R_m.coeffs()[2] for he_i in H_list]
+# h_x_px = [he_i.p_m[0] for he_i in H_list]
+# h_x_py = [he_i.p_m[1] for he_i in H_list]
+# h_x_pz = [he_i.p_m[2] for he_i in H_list]
 
 # d = [np.linalg.norm(xe_i.p-x_i.p) for xe_i, x_i in zip(X_est_list,X_list)]
 t_imu = np.arange(0, _TIME, dt_imu)
@@ -230,6 +234,10 @@ plt.plot(x_est, y_est, color='blue', label='estimated',ls = ":")
 plt.legend()
 plt.show()
 
+plt.plot(t_imu,d_X_R_n, color='red', label='real', ls = "-")
+
+plt.legend()
+plt.show()
 
 P_p = [np.diag((x_i)[6:9,6:9]) for x_i in P_est_list]
 
@@ -246,9 +254,9 @@ plt.show()
 
 
 # # Plotting correction (z), variables: Z.R (x,y,z) and Z.p (x,y,z)
-plt.plot( t_ot, z_x, color='red', label='Z_R_x', ls = "-")
-plt.plot( t_ot ,z_y, color='green', label='Z_R_y',ls = "-")
-plt.plot( t_ot ,z_z, color='blue', label='Z_R_z',ls = "-")
+plt.plot( t_ot, z_R_x, color='red', label='Z_R_x', ls = "-")
+plt.plot( t_ot ,z_R_y, color='green', label='Z_R_y',ls = "-")
+plt.plot( t_ot ,z_R_z, color='blue', label='Z_R_z',ls = "-")
 
 plt.plot( t_ot ,z_x_px, color='red', label='Z_x_p',ls = ":")
 plt.plot( t_ot ,z_x_py, color='green', label='Z_y_p',ls = ":")

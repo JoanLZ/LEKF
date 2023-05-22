@@ -8,4 +8,7 @@ def get_X_n_Y (X_list):
     y = [x_i.p[1] for x_i in X_list]
     return x,y
 
+def get_R (X_list):
+    R = [x_i.R.coeffs() for x_i in X_list]
+    return R
 
